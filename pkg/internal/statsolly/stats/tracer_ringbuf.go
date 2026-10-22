@@ -30,19 +30,39 @@ type RingBufTracer struct {
 	statsMap *ciliumebpf.Map
 	cfg      *config.EBPFTracer
 	forward  func(context.Context, *msg.Queue[[]*ebpf.Stat])
+	// owners is nil when no destination process attribute of the TCP stats is selected
+	owners *remoteOwners
 }
 
-func NewRingBufTracer(statsMap *ciliumebpf.Map, cfg *config.EBPFTracer) *RingBufTracer {
+// NewRingBufTracer reads the stat events of statsMap. When endpointOwners is not nil, it also
+// finds the process of the remote socket of each TCP stat on this host.
+func NewRingBufTracer(statsMap, endpointOwners *ciliumebpf.Map, cfg *config.EBPFTracer) *RingBufTracer {
+	parse := parseStat
+	var owners *remoteOwners
+	if endpointOwners != nil {
+		owners = newRemoteOwners(endpointOwners)
+		parse = func(record *ringbuf.Record) (*ebpf.Stat, bool, error) {
+			stat, ignore, err := parseStat(record)
+			if err == nil {
+				owners.find(stat)
+			}
+			return stat, ignore, err
+		}
+	}
 	return &RingBufTracer{
 		statsMap: statsMap,
 		cfg:      cfg,
-		forward:  ebpfcommon.ForwardRingbuf(cfg, statsMap, parseStat, nil, rtlog(), nil),
+		forward:  ebpfcommon.ForwardRingbuf(cfg, statsMap, parse, nil, rtlog(), nil),
+		owners:   owners,
 	}
 }
 
 func (m *RingBufTracer) TraceLoop(out *msg.Queue[[]*ebpf.Stat]) swarm.RunFunc {
 	return func(ctx context.Context) {
 		defer out.MarkCloseable()
+		if m.owners != nil {
+			go m.owners.expireEvery(ctx, remoteOwnersCacheTTL)
+		}
 		m.forward(ctx, out)
 	}
 }
@@ -68,10 +88,16 @@ func handleStatEvent(record *ringbuf.Record) (ebpf.Stat, error) {
 		return readTCPFailedConnectionsIntoStat(record)
 	case ebpf.StatTypeTCPSuccessfulConnection:
 		return readTCPSuccessfulConnectionsIntoStat(record)
+	case ebpf.StatTypeTCPClosedConnection:
+		return readTCPClosedConnectionsIntoStat(record)
 	case ebpf.StatTypeTCPRetransmit:
 		return readTCPRetransmitIntoStat(record)
 	case ebpf.StatTypeTCPIo:
 		return readTCPIoIntoStat(record)
+	case ebpf.StatTypeTCPFlowControl:
+		return readTCPFlowControlIntoStat(record)
+	case ebpf.StatTypeTCPCongestion:
+		return readTCPCongestionIntoStat(record)
 	default:
 		return ebpf.Stat{}, fmt.Errorf("unknown stats event [type %d]", uint8(eventType))
 	}
@@ -89,6 +115,15 @@ func connToCommonAttrs(conn ebpf.Conn) pipe.CommonAttrs {
 	}
 }
 
+func sockOwner(o ebpf.StatsSockOwnerT) ebpf.SockOwner {
+	return ebpf.SockOwner{
+		Pid:      o.Pid,
+		NetNS:    o.Netns,
+		ExecName: ebpf.CString(o.ExeName[:]),
+		CgroupID: uint64(o.CgroupIdHi)<<32 | uint64(o.CgroupIdLo),
+	}
+}
+
 func readTCPRttIntoStat(record *ringbuf.Record) (ebpf.Stat, error) {
 	event, err := ebpfcommon.ReinterpretCast[ebpf.StatsTCPRtt](record.RawSample)
 	if err != nil {
@@ -101,6 +136,8 @@ func readTCPRttIntoStat(record *ringbuf.Record) (ebpf.Stat, error) {
 			Role:   event.Role,
 		},
 		CommonAttrs: connToCommonAttrs(event.Conn),
+		ServerPort:  ebpf.ServerPortOf(event.Role, event.S_port, event.D_port),
+		Owner:       sockOwner(event.Owner),
 	}, nil
 }
 
@@ -116,6 +153,8 @@ func readTCPFailedConnectionsIntoStat(record *ringbuf.Record) (ebpf.Stat, error)
 			Role:   event.Role,
 		},
 		CommonAttrs: connToCommonAttrs(event.Conn),
+		ServerPort:  ebpf.ServerPortOf(event.Role, event.S_port, event.D_port),
+		Owner:       sockOwner(event.Owner),
 	}, nil
 }
 
@@ -130,6 +169,24 @@ func readTCPSuccessfulConnectionsIntoStat(record *ringbuf.Record) (ebpf.Stat, er
 			Role: event.Role,
 		},
 		CommonAttrs: connToCommonAttrs(event.Conn),
+		ServerPort:  ebpf.ServerPortOf(event.Role, event.S_port, event.D_port),
+		Owner:       sockOwner(event.Owner),
+	}, nil
+}
+
+func readTCPClosedConnectionsIntoStat(record *ringbuf.Record) (ebpf.Stat, error) {
+	event, err := ebpfcommon.ReinterpretCast[ebpf.StatsTCPClosedConnection](record.RawSample)
+	if err != nil {
+		return ebpf.Stat{}, err
+	}
+	return ebpf.Stat{
+		Type: ebpf.StatTypeTCPClosedConnection,
+		TCPClosedConnection: &ebpf.TCPClosedConnection{
+			Role: event.Role,
+		},
+		CommonAttrs: connToCommonAttrs(event.Conn),
+		ServerPort:  ebpf.ServerPortOf(event.Role, event.S_port, event.D_port),
+		Owner:       sockOwner(event.Owner),
 	}, nil
 }
 
@@ -139,9 +196,11 @@ func readTCPRetransmitIntoStat(record *ringbuf.Record) (ebpf.Stat, error) {
 		return ebpf.Stat{}, err
 	}
 	return ebpf.Stat{
-		Type:          ebpf.StatTypeTCPRetransmit,
-		TCPRetransmit: true,
-		CommonAttrs:   connToCommonAttrs(event.Conn),
+		Type:              ebpf.StatTypeTCPRetransmit,
+		TCPRetransmit:     true,
+		TCPRetransmitType: event.Type,
+		CommonAttrs:       connToCommonAttrs(event.Conn),
+		Owner:             sockOwner(event.Owner),
 	}, nil
 }
 
@@ -150,9 +209,9 @@ func readTCPIoIntoStat(record *ringbuf.Record) (ebpf.Stat, error) {
 	if err != nil {
 		return ebpf.Stat{}, err
 	}
-	var total uint32
+	var total uint64
 	for _, b := range event.Bytes[:min(int(event.Count), ebpf.TCPIoBatchSize)] {
-		total += b
+		total += uint64(b)
 	}
 	return ebpf.Stat{
 		Type: ebpf.StatTypeTCPIo,
@@ -161,5 +220,42 @@ func readTCPIoIntoStat(record *ringbuf.Record) (ebpf.Stat, error) {
 			Bytes:     total,
 		},
 		CommonAttrs: connToCommonAttrs(event.Conn),
+		Owner:       sockOwner(event.Owner),
+	}, nil
+}
+
+func readTCPFlowControlIntoStat(record *ringbuf.Record) (ebpf.Stat, error) {
+	event, err := ebpfcommon.ReinterpretCast[ebpf.StatsTCPFlowControl](record.RawSample)
+	if err != nil {
+		return ebpf.Stat{}, err
+	}
+	return ebpf.Stat{
+		Type: ebpf.StatTypeTCPFlowControl,
+		TCPFlowControl: &ebpf.TCPFlowControl{
+			Event: event.Event,
+			Role:  event.Role,
+		},
+		CommonAttrs: connToCommonAttrs(event.Conn),
+		ServerPort:  ebpf.ServerPortOf(event.Role, event.S_port, event.D_port),
+		Owner:       sockOwner(event.Owner),
+	}, nil
+}
+
+func readTCPCongestionIntoStat(record *ringbuf.Record) (ebpf.Stat, error) {
+	event, err := ebpfcommon.ReinterpretCast[ebpf.StatsTCPCongestion](record.RawSample)
+	if err != nil {
+		return ebpf.Stat{}, err
+	}
+	return ebpf.Stat{
+		Type: ebpf.StatTypeTCPCongestion,
+		TCPCongestion: &ebpf.TCPCongestion{
+			DeliveredCE: event.Delta.DeliveredCE,
+			ReordSeen:   event.Delta.ReordSeen,
+			RcvOOOPack:  event.Delta.RcvOOOPack,
+			Role:        event.Role,
+		},
+		CommonAttrs: connToCommonAttrs(event.Conn),
+		ServerPort:  ebpf.ServerPortOf(event.Role, event.S_port, event.D_port),
+		Owner:       sockOwner(event.Owner),
 	}, nil
 }

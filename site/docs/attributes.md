@@ -165,11 +165,14 @@ Attributes used by OBI's span-metrics emission. The metric names match the outpu
 
 ## `registry.obi.stats`
 
-Attributes carried on OBI's per-connection TCP statistics. Emitted when the `stats_tcp_rtt`, `stats_tcp_failed_connections` or `stats_tcp_successful_connections` features are enabled (all rolled into the umbrella `stats` feature). Like network-flow metrics, the per-data-point attribute set is configurable via `attributes.select`.
+Attributes carried on OBI's per-connection TCP statistics. Emitted when the `stats_tcp_rtt`, `stats_tcp_failed_connections`, `stats_tcp_successful_connections`, `stats_tcp_closed_connections`, `stats_tcp_flow_control`, `stats_tcp_congestion` or `stats_dns_lookups` features are enabled (all but `stats_dns_lookups` rolled into the umbrella `stats` feature). Like network-flow metrics, the per-data-point attribute set is configurable via `attributes.select`.
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
+| `dns.question.type` | string | development | DNS record type of the question, as its name (`A`, `AAAA`, `SRV`...), or as its number for the types without a name in OBI. | A; AAAA; SRV |
+| `network.tcp.flow_control.event` | enum | development | Kind of TCP flow-control event. `zero_window` is a zero-window probe sent while the peer advertises a zero receive window. | zero_window; unknown |
 | `network.tcp.handshake.role` | enum | development | Role of the local endpoint in the TCP three-way handshake (`client` initiated the SYN, `server` was awaiting it). | client; server; unknown |
+| `network.tcp.retransmit.type` | enum | development | Cause of a TCP retransmission: `timeout` when the retransmission timer expired, `fast` during fast recovery (duplicate ACKs or SACK), `other` for anything else (e.g. tail loss probes). | timeout; fast; other |
 | `reason` | enum | development | Classification of why a TCP connection failed. | refused; reset; timed-out; host-unreachable; net-unreachable; other; unknown |
 
 ## `registry.obi.traces_resource`

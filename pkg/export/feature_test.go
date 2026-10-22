@@ -361,3 +361,20 @@ func TestFeatureMarshalYAML(t *testing.T) {
 		})
 	}
 }
+
+func TestStatsDNSLookupsIsOptIn(t *testing.T) {
+	assert.False(t, FeatureStats.StatsDNSLookups(), "the stats group must not attach the DNS socket filter")
+	assert.True(t, FeatureMapper["stats_dns_lookups"].StatsDNSLookups())
+	assert.True(t, FeatureStatsDNSLookups.StatMetrics(), "DNS lookups alone start the stats pipeline")
+	assert.True(t, FeatureAll.StatsDNSLookups())
+}
+
+func TestStatsSocketTrafficIsOptIn(t *testing.T) {
+	assert.False(t, FeatureStats.StatsSocketTraffic(), "the stats group must not attach the socket traffic probes")
+	assert.True(t, FeatureMapper["stats_socket_bytes"].StatsSocketBytes())
+	assert.False(t, FeatureMapper["stats_socket_bytes"].StatsSocketPackets())
+	assert.True(t, FeatureMapper["stats_socket_packets"].StatsSocketPackets())
+	assert.True(t, FeatureStatsSocketBytes.StatsSocketTraffic())
+	assert.True(t, FeatureStatsSocketPackets.StatsSocketTraffic())
+	assert.True(t, FeatureStatsSocketPackets.StatMetrics(), "socket traffic alone starts the stats pipeline")
+}

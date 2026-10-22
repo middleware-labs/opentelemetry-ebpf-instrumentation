@@ -1,0 +1,191 @@
+# Generates the TCP events behind two OBI stats metrics:
+#   obi.stat.tcp.flow_control.events  - zero-window-client writes to a server that never reads,
+#                                       so the kernel sends zero-window probes (tcp_send_probe0).
+#   obi.stat.tcp.ecn.ce.packets       - ecn-client negotiates ECN (tcp_ecn=1) and its egress netem
+#                                       qdisc marks ECT packets CE instead of dropping them.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tcp-events
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tcp-events-scripts
+  namespace: tcp-events
+data:
+  zero_window_server.py: |
+    import socket, threading, time
+    s = socket.socket()
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    # small, locked receive buffer so the advertised window reaches zero quickly
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
+    s.bind(("", 9000))
+    s.listen(64)
+    def hold(c):
+        time.sleep(90)  # never read
+        c.close()
+    while True:
+        c, addr = s.accept()
+        print("accepted", addr, flush=True)
+        threading.Thread(target=hold, args=(c,), daemon=True).start()
+  zero_window_client.py: |
+    import socket, time
+    buf = b"x" * 65536
+    while True:
+        try:
+            c = socket.create_connection(("zero-window-server", 9000), timeout=5)
+            c.settimeout(60)  # sendall blocks on the zero window while the kernel probes
+            try:
+                while True:
+                    c.sendall(buf)
+            except socket.timeout:
+                print("window stayed closed for 60s, reconnecting", flush=True)
+            c.close()
+        except Exception as e:
+            print("error:", e, flush=True)
+            time.sleep(2)
+  ecn_sink.py: |
+    import socket, threading
+    s = socket.socket()
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    s.bind(("", 9001))
+    s.listen(64)
+    def drain(c):
+        while c.recv(65536):
+            pass
+        c.close()
+    while True:
+        c, _ = s.accept()
+        threading.Thread(target=drain, args=(c,), daemon=True).start()
+  ecn_client.py: |
+    import socket, time
+    buf = b"x" * 65536
+    while True:
+        try:
+            c = socket.create_connection(("ecn-sink", 9001), timeout=5)
+            for _ in range(320):  # ~20 MiB per connection
+                c.sendall(buf)
+            c.close()
+            print("sent 20MiB", flush=True)
+        except Exception as e:
+            print("error:", e, flush=True)
+        time.sleep(2)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zero-window-server
+  namespace: tcp-events
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: zero-window-server}
+  template:
+    metadata:
+      labels: {app: zero-window-server}
+    spec:
+      containers:
+        - name: server
+          image: python:3.12-alpine
+          command: ["python", "-u", "/scripts/zero_window_server.py"]
+          ports: [{containerPort: 9000}]
+          volumeMounts: [{name: scripts, mountPath: /scripts}]
+      volumes:
+        - name: scripts
+          configMap: {name: tcp-events-scripts}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zero-window-server
+  namespace: tcp-events
+spec:
+  selector: {app: zero-window-server}
+  ports: [{port: 9000, targetPort: 9000}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zero-window-client
+  namespace: tcp-events
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: zero-window-client}
+  template:
+    metadata:
+      labels: {app: zero-window-client}
+    spec:
+      containers:
+        - name: client
+          image: python:3.12-alpine
+          command: ["python", "-u", "/scripts/zero_window_client.py"]
+          volumeMounts: [{name: scripts, mountPath: /scripts}]
+      volumes:
+        - name: scripts
+          configMap: {name: tcp-events-scripts}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ecn-sink
+  namespace: tcp-events
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: ecn-sink}
+  template:
+    metadata:
+      labels: {app: ecn-sink}
+    spec:
+      containers:
+        - name: sink
+          image: python:3.12-alpine
+          command: ["python", "-u", "/scripts/ecn_sink.py"]
+          ports: [{containerPort: 9001}]
+          volumeMounts: [{name: scripts, mountPath: /scripts}]
+      volumes:
+        - name: scripts
+          configMap: {name: tcp-events-scripts}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ecn-sink
+  namespace: tcp-events
+spec:
+  selector: {app: ecn-sink}
+  ports: [{port: 9001, targetPort: 9001}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ecn-client
+  namespace: tcp-events
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: ecn-client}
+  template:
+    metadata:
+      labels: {app: ecn-client}
+    spec:
+      initContainers:
+        # Runs in the pod's network namespace: request ECN on outgoing connections and
+        # CE-mark 1% of ECN-capable egress packets (non-ECT packets are dropped instead).
+        - name: setup-ecn
+          image: nicolaka/netshoot:v0.13
+          securityContext: {privileged: true}
+          command:
+            - sh
+            - -c
+            - sysctl -w net.ipv4.tcp_ecn=1 && tc qdisc replace dev eth0 root netem loss 1% ecn && tc qdisc show dev eth0
+      containers:
+        - name: client
+          image: python:3.12-alpine
+          command: ["python", "-u", "/scripts/ecn_client.py"]
+          volumeMounts: [{name: scripts, mountPath: /scripts}]
+      volumes:
+        - name: scripts
+          configMap: {name: tcp-events-scripts}

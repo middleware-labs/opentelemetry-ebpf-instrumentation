@@ -31,6 +31,9 @@ data:
         obi.stat.tcp.successful.connections:
           include: ["*"]
           exclude: ["src_port", "dst_port"]
+        obi.stat.tcp.closed.connections:
+          include: ["*"]
+          exclude: ["src_port", "dst_port"]
 ---
 apiVersion: apps/v1
 kind: DaemonSet

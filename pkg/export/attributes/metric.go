@@ -678,6 +678,55 @@ var (
 		OTEL:    "obi.stat.tcp.successful.connections",
 		Type:    InstrumentCounter,
 	})
+	StatTCPClosedConnections = metric(Name{
+		Section: "obi.stat.tcp.closed.connections",
+		OTEL:    "obi.stat.tcp.closed.connections",
+		Unit:    "{connection}",
+		Type:    InstrumentCounter,
+	})
+	StatTCPFlowControlEvents = metric(Name{
+		Section: "obi.stat.tcp.flow_control.events",
+		OTEL:    "obi.stat.tcp.flow_control.events",
+		Unit:    "{event}",
+		Type:    InstrumentCounter,
+	})
+	StatTCPECNCEPackets = metric(Name{
+		Section: "obi.stat.tcp.ecn.ce.packets",
+		OTEL:    "obi.stat.tcp.ecn.ce.packets",
+		Unit:    "{packet}",
+		Type:    InstrumentCounter,
+	})
+	StatTCPReorderingEvents = metric(Name{
+		Section: "obi.stat.tcp.reordering.events",
+		OTEL:    "obi.stat.tcp.reordering.events",
+		Unit:    "{event}",
+		Type:    InstrumentCounter,
+	})
+	StatTCPOutOfOrderPackets = metric(Name{
+		Section: "obi.stat.tcp.out_of_order.packets",
+		OTEL:    "obi.stat.tcp.out_of_order.packets",
+		Unit:    "{packet}",
+		Type:    InstrumentCounter,
+	})
+	// the attributes.select section drops the trailing ".bytes", like NetworkFlow
+	StatSocketBytes = metric(Name{
+		Section: "obi.stat",
+		OTEL:    "obi.stat.bytes",
+		Unit:    "By",
+		Type:    InstrumentCounter,
+	})
+	StatSocketPackets = metric(Name{
+		Section: "obi.stat.packets",
+		OTEL:    "obi.stat.packets",
+		Unit:    "{packet}",
+		Type:    InstrumentCounter,
+	})
+	StatDNSLookupDuration = metric(Name{
+		Section: "obi.stat.dns.lookup.duration",
+		OTEL:    "obi.stat.dns.lookup.duration",
+		Unit:    "s",
+		Type:    InstrumentHistogram,
+	})
 )
 
 // normalizeMetric will facilitate the user-input in the attributes.enable section.

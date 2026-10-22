@@ -1,0 +1,105 @@
+image:
+  registry: ghcr.io
+  repository: middleware-labs/ruby-app
+  # must be a build of the network-performance-monitoring branch
+  # (stats socket_bytes/socket_packets, socket_traffic.tcp_metrics, server.port)
+  tag: REPLACE-WITH-NEW-BUILD
+  pullPolicy: Always
+
+preset: network
+
+config:
+  data:
+    extensions:
+      obi:
+        version: "2.0"
+        capture:
+          network:
+            # network flows (obi.network.flow.bytes/packets) off: the stats come from the
+            # per-connection socket rows (reader flow)
+            capture:
+              enabled: false
+            stats:
+              enabled: true
+              features:
+                - tcp_rtt
+                - tcp_failed_connections
+                - tcp_successful_connections
+                - tcp_retransmits
+                - tcp_flow_control
+                - tcp_congestion
+                - tcp_closed_connections
+                - dns_lookups
+                - socket_bytes
+                - socket_packets
+              socket_traffic:
+                protocols: [tcp, udp]
+                # how often the rows are read: not longer than the export interval (30s)
+                read_interval: 10s
+                max_entries: 65536
+                # TCP metrics read from the rows, like Datadog's connection stats
+                tcp_metrics: true
+                # closed connections merged by server port, like Datadog's rollup
+                connection_rollup: true
+              enrichment:
+                reverse_dns:
+                  mode: ebpf
+                  cache:
+                    size: 256
+                    ttl: 1h
+        enrich:
+          attributes:
+            select:
+              obi.stat.bytes:
+                include: ["*"]
+                exclude: [src.port, dst.port]
+              obi.stat.packets:
+                include: ["*"]
+                exclude: [src.port, dst.port]
+              obi.stat.tcp.rtt:
+                include: ["*"]
+                exclude: [src.port, dst.port]
+              obi.stat.tcp.retransmits:
+                include: ["*"]
+                exclude: [src.port, dst.port]
+              obi.stat.tcp.failed.connections:
+                include: ["*"]
+                exclude: [src.port, dst.port]
+              obi.stat.tcp.successful.connections:
+                include: ["*"]
+                exclude: [src.port, dst.port]
+              obi.stat.tcp.closed.connections:
+                include: ["*"]
+                exclude: [src.port, dst.port]
+              obi.stat.tcp.flow_control.events:
+                include: ["*"]
+                exclude: [src.port, dst.port]
+              obi.stat.tcp.ecn.ce.packets:
+                include: ["*"]
+                exclude: [src.port, dst.port]
+              obi.stat.tcp.reordering.events:
+                include: ["*"]
+                exclude: [src.port, dst.port]
+              obi.stat.tcp.out_of_order.packets:
+                include: ["*"]
+                exclude: [src.port, dst.port]
+              obi.stat.dns.lookup.duration:
+                include: ["*"]
+                exclude: [src.port, dst.port]
+          enrichers:
+            kubernetes:
+              mode: enabled
+              cluster_name: npm-cluster
+    meter_provider:
+      readers:
+        - periodic:
+            interval: 30000
+            exporter:
+              otlp_grpc:
+                endpoint: http://mw-service.mw-agent-ns.svc.cluster.local:9319
+                tls:
+                  insecure: true
+    tracer_provider: null
+
+k8sCache:
+  replicas: 1

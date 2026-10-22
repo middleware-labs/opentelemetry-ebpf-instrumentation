@@ -18,6 +18,8 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/pipe/rdns"
 	"go.opentelemetry.io/obi/pkg/internal/pipe/transform/dynamicpid"
 	"go.opentelemetry.io/obi/pkg/internal/pipe/transform/k8s"
+	"go.opentelemetry.io/obi/pkg/internal/pipe/transform/procattrs"
+	"go.opentelemetry.io/obi/pkg/internal/procmeta"
 	"go.opentelemetry.io/obi/pkg/internal/statsolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/internal/statsolly/export"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -27,9 +29,40 @@ import (
 
 func statAttrs(s *ebpf.Stat) *pipe.CommonAttrs { return &s.CommonAttrs }
 
+// statProcesses returns the local and remote processes of the stats, for the sides whose
+// process or container attributes are selected
+func statProcesses(src, dst bool) func(s *ebpf.Stat) (procmeta.Process, procmeta.Process) {
+	return func(s *ebpf.Stat) (procmeta.Process, procmeta.Process) {
+		var srcProc, dstProc procmeta.Process
+		if t := s.SocketTraffic; t != nil {
+			srcProc = procmeta.Process{Pid: t.Pid, ExecName: t.ExecName, CgroupID: t.CgroupID}
+			dstProc = procmeta.Process{Pid: t.DstPid, ExecName: t.DstExecName, CgroupID: t.DstCgroupID}
+		} else {
+			o := &s.Owner
+			srcProc = procmeta.Process{Pid: o.Pid, ExecName: o.ExecName, CgroupID: o.CgroupID}
+			dstProc = procmeta.Process{Pid: o.DstPid, ExecName: o.DstExecName, CgroupID: o.DstCgroupID}
+		}
+		if !src {
+			srcProc = procmeta.Process{}
+		}
+		if !dst {
+			dstProc = procmeta.Process{}
+		}
+		return srcProc, dstProc
+	}
+}
+
 // mockable functions for testing
 var newRingBufTracer = func(s *Stats, out *msg.Queue[[]*ebpf.Stat]) swarm.RunFunc {
 	return s.rbTracer.TraceLoop(out)
+}
+
+var newDNSTracer = func(s *Stats, out *msg.Queue[[]*ebpf.Stat]) swarm.RunFunc {
+	return s.dnsTracer.TraceLoop(out)
+}
+
+var newSocketTrafficReader = func(s *Stats, out *msg.Queue[[]*ebpf.Stat]) swarm.RunFunc {
+	return s.socketTraffic.TraceLoop(out)
 }
 
 // buildPipeline defines the different nodes in the OBI's StatsO11y module,
@@ -45,16 +78,41 @@ func (s *Stats) buildPipeline(ctx context.Context) (*swarm.Runner, error) {
 	}
 
 	swi := &swarm.Instancer{}
-	// Start nodes: those generating stats (reading them from eBPF)
-	ebpfStats := msgh.QueueFromConfig[[]*ebpf.Stat](s.cfg, s.ctxInfo.Metrics, "ebpfStats")
+	// Start nodes: those generating stats (reading them from eBPF).
+	// ebpfStats can have several senders (RingBufTracer, DNSTracer, SocketTrafficReader), so it must
+	// only be closed after all of them have marked it closeable.
+	dnsLookups := s.cfg.Metrics.Features.StatsDNSLookups()
+	socketTraffic := s.cfg.Metrics.Features.StatsSocketTraffic() ||
+		ebpf.TCPMetricsFromRows(&s.cfg.Metrics.Features, &s.cfg.Stats.SocketTraffic)
+	senders := 1
+	if dnsLookups {
+		senders++
+	}
+	if socketTraffic {
+		senders++
+	}
+	ebpfStats := msgh.QueueFromConfig[[]*ebpf.Stat](s.cfg, s.ctxInfo.Metrics, "ebpfStats", msg.ClosingAttempts(senders))
 	swi.Add(swarm.DirectInstance(newRingBufTracer(s, ebpfStats)), swarm.WithID("RingBufTracer"))
+	if dnsLookups {
+		swi.Add(swarm.DirectInstance(newDNSTracer(s, ebpfStats)), swarm.WithID("DNSTracer"))
+	}
+	if socketTraffic {
+		swi.Add(swarm.DirectInstance(newSocketTrafficReader(s, ebpfStats)), swarm.WithID("SocketTrafficReader"))
+	}
 
 	// Middle nodes: transforming stats and passing them to the next stage in the pipeline.
 	// Many of the nodes here are not mandatory. It's decision of each InstanceFunc to decide
 	// whether the node needs to be instantiated or just bypass their input/output channels.
+	procDecoratedStats := msgh.QueueFromConfig[[]*ebpf.Stat](s.cfg, s.ctxInfo.Metrics, "procDecoratedStats")
+	features := &s.cfg.Metrics.Features
+	srcProc, dstProc := processAttrsSelected(s.cfg, append(socketTrafficMetrics(features), tcpStatMetrics(features)...))
+	swi.Add(procattrs.DecoratorProvider(s.processResolver(srcProc || dstProc), statProcesses(srcProc, dstProc),
+		func(s *ebpf.Stat, p *procmeta.Pair) { s.Processes = p },
+		ebpfStats, procDecoratedStats), swarm.WithID("ProcessAttributesDecorator"))
+
 	kubeDecoratedStats := msgh.QueueFromConfig[[]*ebpf.Stat](s.cfg, s.ctxInfo.Metrics, "kubeDecoratedStats")
 	swi.Add(k8s.MetadataDecoratorProvider(ctx, &s.cfg.Attributes.Kubernetes, s.ctxInfo.K8sInformer,
-		statAttrs, ebpfStats, kubeDecoratedStats), swarm.WithID("K8sMetadataDecorator"))
+		statAttrs, procDecoratedStats, kubeDecoratedStats), swarm.WithID("K8sMetadataDecorator"))
 
 	dnsDecoratedStats := msgh.QueueFromConfig[[]*ebpf.Stat](s.cfg, s.ctxInfo.Metrics, "dnsDecoratedStats")
 	swi.Add(rdns.ReverseDNSProvider(&s.cfg.Stats.ReverseDNS, statAttrs, &s.cfg.EBPF, kubeDecoratedStats, dnsDecoratedStats),

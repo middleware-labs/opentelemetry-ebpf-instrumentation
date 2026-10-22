@@ -8,6 +8,7 @@ package kprobe // import "go.opentelemetry.io/obi/pkg/internal/ebpf/kprobe"
 import (
 	"errors"
 	"io"
+	"log/slog"
 	"runtime"
 
 	"github.com/cilium/ebpf"
@@ -26,6 +27,10 @@ var attachPMU = func(symbol string, prog *ebpf.Program, ret bool) (io.Closer, er
 
 var attachTraceFSEvent = tracefs.Attach
 
+var attachRetMaxActive = func(symbol string, prog *ebpf.Program, maxActive int) (io.Closer, error) {
+	return link.Kretprobe(symbol, prog, &link.KprobeOptions{RetprobeMaxActive: maxActive})
+}
+
 // Attach retries an EACCES from the PMU through tracefs, keeping the kernel's
 // default maxactive for return probes.
 func Attach(symbol string, prog *ebpf.Program, ret bool) (io.Closer, error) {
@@ -33,6 +38,20 @@ func Attach(symbol string, prog *ebpf.Program, ret bool) (io.Closer, error) {
 		func() (io.Closer, error) { return attachPMU(symbol, prog, ret) },
 		func() (io.Closer, error) { return attachTraceFS(symbol, prog, ret) },
 	)
+}
+
+// AttachRetMaxActive attaches a kretprobe that tracks up to maxActive calls at once, like
+// Datadog's DefaultKProbeMaxActive. With the kernel default (2 per CPU, at least 10), the
+// returns of the calls beyond it are silently missed, for example while many threads sleep in
+// tcp_sendmsg waiting for socket memory. Setting it needs tracefs: when that fails, the
+// kretprobe is attached with the kernel default.
+func AttachRetMaxActive(symbol string, prog *ebpf.Program, maxActive int) (io.Closer, error) {
+	l, err := attachRetMaxActive(symbol, prog, maxActive)
+	if err == nil {
+		return l, nil
+	}
+	slog.Debug("kretprobe maxactive not set, using the kernel default", "function", symbol, "error", err)
+	return Attach(symbol, prog, true)
 }
 
 func attachTraceFS(symbol string, prog *ebpf.Program, ret bool) (io.Closer, error) {

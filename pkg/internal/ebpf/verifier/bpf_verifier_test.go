@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/btf"
@@ -334,5 +335,8 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 	forEachCombination(t, "statsolly/Stats", statsolly.LoadStats, []constOption{
 		{"g_bpf_debug", []any{true, false}},
 		{"stats_wakeup_data_bytes", []any{uint32(0), uint32(1 << 20)}},
+		{"stats_congestion_min_interval_ns", []any{uint64(0), uint64(time.Second)}},
+		{"stats_sock_owner_enabled", []any{false, true}},
+		{"stats_tcp_metrics_enabled", []any{false, true}},
 	})
 }

@@ -236,6 +236,7 @@ runtimes:
 network:
     capture:
         enabled: false
+        features: []
         source: socket_filter
         buffer_size: 0
         endpoint_identity:

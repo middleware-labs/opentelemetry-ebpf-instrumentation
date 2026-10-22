@@ -1,0 +1,30 @@
+docker buildx build \
+  --platform linux/amd64 \
+  --build-arg RELEASE_VERSION=ntest2 \
+  --build-arg RELEASE_REVISION=ntest2 \
+  -t ghcr.io/middleware-labs/ruby-app:ntest2 \
+  --push \
+  .
+
+
+  docker run -d --name obi --restart unless-stopped \
+    --privileged --network host --pid=host \
+    -v /sys/fs/cgroup:/sys/fs/cgroup \
+    -v /sys/kernel/tracing:/sys/kernel/tracing \
+    -v /var/run/docker.sock:/var/run/docker.sock:ro \
+    -v "$PWD/obi-host.yaml:/etc/obi/obi-host.yaml:ro" \
+    -e OTEL_EBPF_CONFIG_PATH=/etc/obi/obi-host.yaml \
+    ghcr.io/middleware-labs/ruby-app:ntest2
+
+
+    docker rm -f obi 2>/dev/null
+
+   docker run -d --name obi --restart unless-stopped \
+    --pull always \
+    --privileged --network host --pid=host \
+    -v /sys/fs/cgroup:/sys/fs/cgroup \
+    -v /sys/kernel/tracing:/sys/kernel/tracing \
+    -v /var/run/docker.sock:/var/run/docker.sock:ro \
+    -v "$PWD/obi-host.yaml:/etc/obi/obi-host.yaml:ro" \
+    -e OTEL_EBPF_CONFIG_PATH=/etc/obi/obi-host.yaml \
+    ghcr.io/middleware-labs/ruby-app:ntest2

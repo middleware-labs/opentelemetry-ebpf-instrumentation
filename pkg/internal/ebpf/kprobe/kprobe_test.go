@@ -25,9 +25,9 @@ func (nopCloser) Close() error { return nil }
 
 func restoreAttachments(t *testing.T) {
 	t.Helper()
-	pmu, trace := attachPMU, attachTraceFSEvent
+	pmu, trace, maxActive := attachPMU, attachTraceFSEvent, attachRetMaxActive
 	t.Cleanup(func() {
-		attachPMU, attachTraceFSEvent = pmu, trace
+		attachPMU, attachTraceFSEvent, attachRetMaxActive = pmu, trace, maxActive
 	})
 }
 
@@ -122,4 +122,32 @@ func TestTraceFSRetrySyscallPrefix(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestAttachRetMaxActive(t *testing.T) {
+	restoreAttachments(t)
+	prog := &ebpf.Program{}
+	withMaxActive, withDefault := &nopCloser{}, &nopCloser{}
+	attachPMU = func(_ string, _ *ebpf.Program, ret bool) (io.Closer, error) {
+		assert.True(t, ret)
+		return withDefault, nil
+	}
+
+	attachRetMaxActive = func(symbol string, got *ebpf.Program, maxActive int) (io.Closer, error) {
+		assert.Equal(t, "ip_make_skb", symbol)
+		assert.Same(t, prog, got)
+		assert.Equal(t, 128, maxActive)
+		return withMaxActive, nil
+	}
+	l, err := AttachRetMaxActive("ip_make_skb", prog, 128)
+	require.NoError(t, err)
+	assert.Same(t, withMaxActive, l)
+
+	// without tracefs, the kretprobe still attaches with the kernel default
+	attachRetMaxActive = func(string, *ebpf.Program, int) (io.Closer, error) {
+		return nil, unix.ENOENT
+	}
+	l, err = AttachRetMaxActive("ip_make_skb", prog, 128)
+	require.NoError(t, err)
+	assert.Same(t, withDefault, l)
 }

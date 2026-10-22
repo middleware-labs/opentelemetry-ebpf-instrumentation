@@ -41,6 +41,14 @@ type statMetricsReporter struct {
 	tcpRetransmits           *Expirer[prometheus.Counter]
 	tcpIo                    *Expirer[prometheus.Counter]
 	tcpSuccessfulConnections *Expirer[prometheus.Counter]
+	tcpClosedConnections     *Expirer[prometheus.Counter]
+	tcpFlowControl           *Expirer[prometheus.Counter]
+	tcpECNCEPackets          *Expirer[prometheus.Counter]
+	tcpReorderingEvents      *Expirer[prometheus.Counter]
+	tcpOutOfOrderPackets     *Expirer[prometheus.Counter]
+	dnsLookupDuration        *Expirer[prometheus.Histogram]
+	socketBytes              *Expirer[prometheus.Counter]
+	socketPackets            *Expirer[prometheus.Counter]
 
 	promConnect *connector.PrometheusManager
 
@@ -49,6 +57,14 @@ type statMetricsReporter struct {
 	tcpRetransmitsAttrs           []attributes.Field[*ebpf.Stat, string]
 	tcpIoAttrs                    []attributes.Field[*ebpf.Stat, string]
 	tcpSuccessfulConnectionsAttrs []attributes.Field[*ebpf.Stat, string]
+	tcpClosedConnectionsAttrs     []attributes.Field[*ebpf.Stat, string]
+	tcpFlowControlAttrs           []attributes.Field[*ebpf.Stat, string]
+	tcpECNCEPacketsAttrs          []attributes.Field[*ebpf.Stat, string]
+	tcpReorderingEventsAttrs      []attributes.Field[*ebpf.Stat, string]
+	tcpOutOfOrderPacketsAttrs     []attributes.Field[*ebpf.Stat, string]
+	dnsLookupDurationAttrs        []attributes.Field[*ebpf.Stat, string]
+	socketBytesAttrs              []attributes.Field[*ebpf.Stat, string]
+	socketPacketsAttrs            []attributes.Field[*ebpf.Stat, string]
 
 	input <-chan []*ebpf.Stat
 }
@@ -176,6 +192,104 @@ func newStatsReporter(
 		register = append(register, mr.tcpSuccessfulConnections)
 	}
 
+	if cfg.CommonCfg.Features.StatsTCPClosedConnections() {
+		log.Debug("registering stat tcp closed connections metric")
+
+		mr.tcpClosedConnectionsAttrs = attributes.PrometheusGetters(
+			ebpf.StatStringGetters,
+			provider.For(attributes.StatTCPClosedConnections))
+
+		mr.tcpClosedConnections = NewExpirer[prometheus.Counter](prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: attributes.StatTCPClosedConnections.Prom,
+			Help: "counts the TCP connections that were closed between 2 endpoints",
+		}, labelNames(mr.tcpClosedConnectionsAttrs)).MetricVec, timeNow, cfg.Config.TTL)
+
+		register = append(register, mr.tcpClosedConnections)
+	}
+
+	if cfg.CommonCfg.Features.StatsTCPFlowControl() {
+		log.Debug("registering stat tcp flow control metric")
+
+		mr.tcpFlowControlAttrs = attributes.PrometheusGetters(
+			ebpf.StatStringGetters,
+			provider.For(attributes.StatTCPFlowControlEvents))
+
+		mr.tcpFlowControl = NewExpirer[prometheus.Counter](prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: attributes.StatTCPFlowControlEvents.Prom,
+			Help: "counts TCP flow-control events; for zero_window, one event is one zero-window probe",
+		}, labelNames(mr.tcpFlowControlAttrs)).MetricVec, timeNow, cfg.Config.TTL)
+
+		register = append(register, mr.tcpFlowControl)
+	}
+
+	if cfg.CommonCfg.Features.StatsTCPCongestion() {
+		log.Debug("registering stat tcp congestion metrics")
+
+		newCounter := func(name attributes.Name, help string) ([]attributes.Field[*ebpf.Stat, string], *Expirer[prometheus.Counter]) {
+			attrs := attributes.PrometheusGetters(ebpf.StatStringGetters, provider.For(name))
+			counter := NewExpirer[prometheus.Counter](prometheus.NewCounterVec(prometheus.CounterOpts{
+				Name: name.Prom,
+				Help: help,
+			}, labelNames(attrs)).MetricVec, timeNow, cfg.Config.TTL)
+			return attrs, counter
+		}
+
+		mr.tcpECNCEPacketsAttrs, mr.tcpECNCEPackets = newCounter(attributes.StatTCPECNCEPackets,
+			"counts sent TCP packets that the peer reported as ECN congestion experienced (CE)")
+		mr.tcpReorderingEventsAttrs, mr.tcpReorderingEvents = newCounter(attributes.StatTCPReorderingEvents,
+			"counts TCP data packet reordering events detected by the sender")
+		mr.tcpOutOfOrderPacketsAttrs, mr.tcpOutOfOrderPackets = newCounter(attributes.StatTCPOutOfOrderPackets,
+			"counts TCP packets received out of order")
+
+		register = append(register, mr.tcpECNCEPackets, mr.tcpReorderingEvents, mr.tcpOutOfOrderPackets)
+	}
+
+	if cfg.CommonCfg.Features.StatsDNSLookups() {
+		log.Debug("registering stat dns lookup duration metric")
+
+		mr.dnsLookupDurationAttrs = attributes.PrometheusGetters(
+			ebpf.StatStringGetters,
+			provider.For(attributes.StatDNSLookupDuration))
+
+		mr.dnsLookupDuration = NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:                            attributes.StatDNSLookupDuration.Prom,
+			Help:                            "measures the duration of the DNS lookups of all the processes in seconds, from the question to its answer",
+			Buckets:                         cfg.Config.Buckets.DurationHistogram,
+			NativeHistogramBucketFactor:     cfg.Config.NativeHistogram.BucketFactor,
+			NativeHistogramMaxBucketNumber:  cfg.Config.NativeHistogram.MaxBucketNumber,
+			NativeHistogramMinResetDuration: cfg.Config.NativeHistogram.MinResetDuration,
+		}, labelNames(mr.dnsLookupDurationAttrs)).MetricVec, timeNow, cfg.Config.TTL)
+		register = append(register, mr.dnsLookupDuration)
+	}
+
+	if cfg.CommonCfg.Features.StatsSocketBytes() {
+		log.Debug("registering stat socket bytes metric")
+
+		mr.socketBytesAttrs = attributes.PrometheusGetters(
+			ebpf.StatStringGetters,
+			provider.For(attributes.StatSocketBytes))
+
+		mr.socketBytes = NewExpirer[prometheus.Counter](prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: attributes.StatSocketBytes.Prom,
+			Help: "counts the payload bytes sent and read by the applications on their TCP and UDP sockets",
+		}, labelNames(mr.socketBytesAttrs)).MetricVec, timeNow, cfg.Config.TTL)
+		register = append(register, mr.socketBytes)
+	}
+
+	if cfg.CommonCfg.Features.StatsSocketPackets() {
+		log.Debug("registering stat socket packets metric")
+
+		mr.socketPacketsAttrs = attributes.PrometheusGetters(
+			ebpf.StatStringGetters,
+			provider.For(attributes.StatSocketPackets))
+
+		mr.socketPackets = NewExpirer[prometheus.Counter](prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: attributes.StatSocketPackets.Prom,
+			Help: "counts the TCP segments and UDP datagrams sent and received by the applications' sockets",
+		}, labelNames(mr.socketPacketsAttrs)).MetricVec, timeNow, cfg.Config.TTL)
+		register = append(register, mr.socketPackets)
+	}
+
 	if cfg.Config.Registry != nil {
 		cfg.Config.Registry.MustRegister(register...)
 	} else {
@@ -197,8 +311,13 @@ func (r *statMetricsReporter) collectMetrics(_ context.Context) {
 			r.observeTCPRtt(stat)
 			r.observeTCPFailedConnections(stat)
 			r.observeTCPSuccessfulConnections(stat)
+			r.observeTCPClosedConnections(stat)
 			r.observeTCPRetransmits(stat)
 			r.observeTCPIo(stat)
+			r.observeTCPFlowControl(stat)
+			r.observeTCPCongestion(stat)
+			r.observeDNSLookupDuration(stat)
+			r.observeSocketTraffic(stat)
 		}
 	}
 }
@@ -207,8 +326,11 @@ func (r *statMetricsReporter) observeTCPRtt(stat *ebpf.Stat) {
 	if r.tcpRtt == nil || stat.TCPRtt == nil {
 		return
 	}
-	r.tcpRtt.WithLabelValues(labelValues(stat, r.tcpRttAttrs)...).
-		Metric.Observe(float64(stat.TCPRtt.SrttUs) / 1_000_000.0)
+	histogram := r.tcpRtt.WithLabelValues(labelValues(stat, r.tcpRttAttrs)...).Metric
+	histogram.Observe(float64(stat.TCPRtt.SrttUs) / 1_000_000.0)
+	for _, us := range stat.TCPRtt.Merged {
+		histogram.Observe(float64(us) / 1_000_000.0)
+	}
 }
 
 func (r *statMetricsReporter) observeTCPFailedConnections(stat *ebpf.Stat) {
@@ -216,7 +338,7 @@ func (r *statMetricsReporter) observeTCPFailedConnections(stat *ebpf.Stat) {
 		return
 	}
 	r.tcpFailedConnections.WithLabelValues(labelValues(stat, r.tcpFailedConnectionsAttrs)...).
-		Metric.Add(1)
+		Metric.Add(float64(stat.Events()))
 }
 
 func (r *statMetricsReporter) observeTCPSuccessfulConnections(stat *ebpf.Stat) {
@@ -224,7 +346,15 @@ func (r *statMetricsReporter) observeTCPSuccessfulConnections(stat *ebpf.Stat) {
 		return
 	}
 	r.tcpSuccessfulConnections.WithLabelValues(labelValues(stat, r.tcpSuccessfulConnectionsAttrs)...).
-		Metric.Add(1)
+		Metric.Add(float64(stat.Events()))
+}
+
+func (r *statMetricsReporter) observeTCPClosedConnections(stat *ebpf.Stat) {
+	if r.tcpClosedConnections == nil || stat.TCPClosedConnection == nil {
+		return
+	}
+	r.tcpClosedConnections.WithLabelValues(labelValues(stat, r.tcpClosedConnectionsAttrs)...).
+		Metric.Add(float64(stat.Events()))
 }
 
 func (r *statMetricsReporter) observeTCPRetransmits(stat *ebpf.Stat) {
@@ -232,7 +362,7 @@ func (r *statMetricsReporter) observeTCPRetransmits(stat *ebpf.Stat) {
 		return
 	}
 	r.tcpRetransmits.WithLabelValues(labelValues(stat, r.tcpRetransmitsAttrs)...).
-		Metric.Add(1)
+		Metric.Add(float64(stat.Events()))
 }
 
 func (r *statMetricsReporter) observeTCPIo(stat *ebpf.Stat) {
@@ -241,4 +371,66 @@ func (r *statMetricsReporter) observeTCPIo(stat *ebpf.Stat) {
 	}
 	r.tcpIo.WithLabelValues(labelValues(stat, r.tcpIoAttrs)...).
 		Metric.Add(float64(stat.TCPIo.Bytes))
+}
+
+func (r *statMetricsReporter) observeTCPFlowControl(stat *ebpf.Stat) {
+	if r.tcpFlowControl == nil || stat.TCPFlowControl == nil {
+		return
+	}
+	r.tcpFlowControl.WithLabelValues(labelValues(stat, r.tcpFlowControlAttrs)...).
+		Metric.Add(float64(stat.Events()))
+}
+
+func (r *statMetricsReporter) observeDNSLookupDuration(stat *ebpf.Stat) {
+	if r.dnsLookupDuration == nil || stat.DNSLookup == nil {
+		return
+	}
+	histogram := r.dnsLookupDuration.WithLabelValues(labelValues(stat, r.dnsLookupDurationAttrs)...).Metric
+	histogram.Observe(stat.DNSLookup.Duration.Seconds())
+	for _, d := range stat.DNSLookup.Merged {
+		histogram.Observe(d.Seconds())
+	}
+}
+
+// observeTCPCongestion adds each counter increase of the event, skipping the ones that did not change.
+func (r *statMetricsReporter) observeTCPCongestion(stat *ebpf.Stat) {
+	if stat.TCPCongestion == nil {
+		return
+	}
+	for _, c := range []struct {
+		expirer *Expirer[prometheus.Counter]
+		attrs   []attributes.Field[*ebpf.Stat, string]
+		delta   uint32
+	}{
+		{r.tcpECNCEPackets, r.tcpECNCEPacketsAttrs, stat.TCPCongestion.DeliveredCE},
+		{r.tcpReorderingEvents, r.tcpReorderingEventsAttrs, stat.TCPCongestion.ReordSeen},
+		{r.tcpOutOfOrderPackets, r.tcpOutOfOrderPacketsAttrs, stat.TCPCongestion.RcvOOOPack},
+	} {
+		if c.expirer == nil || c.delta == 0 {
+			continue
+		}
+		c.expirer.WithLabelValues(labelValues(stat, c.attrs)...).
+			Metric.Add(float64(c.delta))
+	}
+}
+
+// observeSocketTraffic adds the bytes and packets of the stat, skipping the ones that are zero.
+func (r *statMetricsReporter) observeSocketTraffic(stat *ebpf.Stat) {
+	if stat.SocketTraffic == nil {
+		return
+	}
+	for _, c := range []struct {
+		expirer *Expirer[prometheus.Counter]
+		attrs   []attributes.Field[*ebpf.Stat, string]
+		value   uint64
+	}{
+		{r.socketBytes, r.socketBytesAttrs, stat.SocketTraffic.Bytes},
+		{r.socketPackets, r.socketPacketsAttrs, stat.SocketTraffic.Packets},
+	} {
+		if c.expirer == nil || c.value == 0 {
+			continue
+		}
+		c.expirer.WithLabelValues(labelValues(stat, c.attrs)...).
+			Metric.Add(float64(c.value))
+	}
 }

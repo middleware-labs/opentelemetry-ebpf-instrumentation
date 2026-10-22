@@ -1026,6 +1026,9 @@ func TestRuntimeToV2StatsEnablementAndFeatures(t *testing.T) {
 			"tcp_successful_connections",
 			"tcp_retransmits",
 			"tcp_io",
+			"tcp_flow_control",
+			"tcp_congestion",
+			"tcp_closed_connections",
 		}, value(t, ext.Capture.Network, "stats", "features"))
 	})
 
@@ -1045,6 +1048,9 @@ func TestRuntimeToV2StatsEnablementAndFeatures(t *testing.T) {
 			"tcp_successful_connections",
 			"tcp_retransmits",
 			"tcp_io",
+			"tcp_flow_control",
+			"tcp_congestion",
+			"tcp_closed_connections",
 		}, value(t, ext.Capture.Network, "stats", "features"))
 	})
 

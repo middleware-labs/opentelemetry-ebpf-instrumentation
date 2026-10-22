@@ -370,6 +370,8 @@ const (
 // DNS events
 const (
 	DNSQuestionName = Name(semconv.DNSQuestionNameKey)
+	// DNSQuestionType has no semantic convention yet. Values are the DNS record type names (A, AAAA, SRV...)
+	DNSQuestionType = Name("dns.question.type")
 )
 
 // GenAI events
@@ -390,7 +392,30 @@ const (
 
 // Stat metrics
 const (
-	TCPFailedConnectionReason = Name("reason")
-	NetworkTCPHandshakeRole   = Name("network.tcp.handshake.role")
-	NetworkIoDirection        = Name(semconv.NetworkIODirectionKey)
+	TCPFailedConnectionReason  = Name("reason")
+	NetworkTCPHandshakeRole    = Name("network.tcp.handshake.role")
+	NetworkTCPRetransmitType   = Name("network.tcp.retransmit.type")
+	NetworkTCPFlowControlEvent = Name("network.tcp.flow_control.event")
+	NetworkIoDirection         = Name(semconv.NetworkIODirectionKey)
+	// NetworkTransport is the OTel name, used by the socket traffic metrics. The network flow
+	// metrics keep their own Transport attribute.
+	NetworkTransport = Name(semconv.NetworkTransportKey)
+	// NetworkConnectionRole is the side of the connection of the local socket (client or server),
+	// for TCP and UDP. TCP takes it from the handshake, UDP from the bound local ports.
+	NetworkConnectionRole = Name("network.connection.role")
+	// NetworkPeerSameHost tells whether the remote socket is on this host, like Datadog's IntraHost
+	NetworkPeerSameHost = Name("network.peer.same_host")
+
+	// The process and container of each side of the socket traffic metrics: src is the local
+	// socket, dst the remote one when it is on the same host.
+	SrcProcessExecutableName = Name("src.process.executable.name")
+	DstProcessExecutableName = Name("dst.process.executable.name")
+	SrcContainerName         = Name("src.container.name")
+	DstContainerName         = Name("dst.container.name")
+	SrcContainerImageName    = Name("src.container.image.name")
+	DstContainerImageName    = Name("dst.container.image.name")
+	SrcContainerImageTag     = Name("src.container.image.tag")
+	DstContainerImageTag     = Name("dst.container.image.tag")
+	SrcContainerID           = Name("src.container.id")
+	DstContainerID           = Name("dst.container.id")
 )

@@ -1356,6 +1356,260 @@ Ratio [0-1] between the unread messages of an internal Go channel and its total 
 | --- | --- | --- | --- | --- | --- |
 | `subscriber` | string | `required` | development | Name of the pipeline stage consuming the internal queue, as given to msg.SubscriberName when the stage subscribed. Subscribers that do not provide a name fall back to the name of the queue they subscribed to. | discover.CriteriaMatcher; traceAttacher |
 
+## `obi.stat.bytes`
+
+Payload bytes that the applications send and read on their TCP and UDP sockets, counted per socket and read periodically from a kernel map.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | By | development |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `dst.address` | string | `recommended` | development | Destination IP address of the flow. | 10.0.0.6 |
+| `dst.container.id` | string | `opt_in` | development | Container ID of the process of the remote (on the same host) socket, from its cgroup. High cardinality: for debugging. | a3bf90e006b2e6b4f4bb1e8f8b8d1f1c4f2a9d3e2c1b0a9f8e7d6c5b4a392817 |
+| `dst.container.image.name` | string | `opt_in` | development | Image name of the container of the process of the remote (on the same host) socket (Docker only). | myrepo/orders |
+| `dst.container.image.tag` | string | `opt_in` | development | Image tag of the container of the process of the remote (on the same host) socket (Docker only). | 1.4 |
+| `dst.container.name` | string | `opt_in` | development | Name of the container of the process of the remote (on the same host) socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
+| `dst.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
+| `dst.port` | int | `opt_in` | development | Destination TCP/UDP port. |  |
+| `dst.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the remote (on the same host) socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
+| `dst.zone` | string | `opt_in` | development | Zone label attached to the destination side. | us-east-1b |
+| `k8s.cluster.name` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The name of the cluster. | opentelemetry-cluster |
+| `k8s.dst.name` | string | `opt_in` | development | Name of the destination Kubernetes object (e.g. Pod name). | users-api-65b8-fghij |
+| `k8s.dst.namespace` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the destination workload. | integration-test |
+| `k8s.dst.node.ip` | string | `opt_in` | development | IP address of the node hosting the destination workload. | 10.0.1.6 |
+| `k8s.dst.node.name` | string | `opt_in` | development | Name of the node hosting the destination workload. | node-2 |
+| `k8s.dst.owner.name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Name of the top-level Kubernetes owner of the destination workload. | users-api |
+| `k8s.dst.owner.type` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kind of the top-level Kubernetes owner of the destination workload. | Deployment |
+| `k8s.dst.type` | string | `opt_in` | development | Type of the destination Kubernetes object. | Pod |
+| `k8s.src.name` | string | `opt_in` | development | Name of the source Kubernetes object (e.g. Pod name). | frontend-7d9c-abcde |
+| `k8s.src.namespace` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the source workload. | integration-test |
+| `k8s.src.node.ip` | string | `opt_in` | development | IP address of the node hosting the source workload. | 10.0.1.5 |
+| `k8s.src.node.name` | string | `opt_in` | development | Name of the node hosting the source workload. | node-1 |
+| `k8s.src.owner.name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Name of the top-level Kubernetes owner of the source workload. | frontend |
+| `k8s.src.owner.type` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kind of the top-level Kubernetes owner of the source workload. | Deployment |
+| `k8s.src.type` | string | `opt_in` | development | Type of the source Kubernetes object. | Pod |
+| `network.connection.role` | enum | `opt_in` | development | Side of the connection of the local socket. TCP takes it from the handshake (`unknown` for connections established before OBI started), UDP from the bound local ports: a socket bound to its local port is the `server`. | client; server; unknown |
+| `network.io.direction` | enum | `recommended` | development | The network IO operation direction. | transmit |
+| `network.peer.same_host` | boolean | `opt_in` | development | Whether the remote socket is on this host: its address and port are the local side of another socket traffic row (the network namespace is kept for loopback addresses), or both addresses are the same or loopback. Always `false` for the TCP stats read from the events. |  |
+| `network.transport` | enum | `recommended` | stable | [OSI transport layer](https://wikipedia.org/wiki/Transport_layer) or [inter-process communication method](https://wikipedia.org/wiki/Inter-process_communication). | tcp; udp |
+| `obi.ip` | string | `opt_in` | development | IP address of the host running OBI. | 10.0.0.5 |
+| `server.port` | int | `opt_in` | stable | Server port number. | 80; 8080; 443 |
+| `service.name` | string | `opt_in` | stable | Logical name of the service. | shoppingcart |
+| `service.namespace` | string | `opt_in` | stable | A namespace for `service.name`. | Shop |
+| `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
+| `service.peer.namespace` | string | `opt_in` | development | Logical namespace of the service on the other side of the connection. SHOULD be equal to the actual [`service.namespace`](/docs/resource/README.md#service) resource attribute of the remote service if any. | Shop |
+| `src.address` | string | `recommended` | development | Source IP address of the flow. | 10.0.0.5 |
+| `src.container.id` | string | `opt_in` | development | Container ID of the process of the local socket, from its cgroup. High cardinality: for debugging. | a3bf90e006b2e6b4f4bb1e8f8b8d1f1c4f2a9d3e2c1b0a9f8e7d6c5b4a392817 |
+| `src.container.image.name` | string | `opt_in` | development | Image name of the container of the process of the local socket (Docker only). | myrepo/orders |
+| `src.container.image.tag` | string | `opt_in` | development | Image tag of the container of the process of the local socket (Docker only). | 1.4 |
+| `src.container.name` | string | `opt_in` | development | Name of the container of the process of the local socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
+| `src.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
+| `src.port` | int | `opt_in` | development | Source TCP/UDP port. |  |
+| `src.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the local socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
+| `src.zone` | string | `opt_in` | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
+
+## `obi.stat.dns.lookup.duration`
+
+Duration of the DNS lookups (UDP and TCP, port 53) of all the processes in OBI's network namespace, from the first copy of the question to the first copy of its answer. The source is the client and the destination is the DNS server. Questions without answer after 5 seconds are recorded with that duration and `error.type` `timeout`. Lookups to loopback DNS servers are not counted.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| histogram | s | development |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `dns.question.name` | string | `opt_in` | development | The name being queried. | www.example.com; opentelemetry.io |
+| `dns.question.type` | string | `opt_in` | development | DNS record type of the question, as its name (`A`, `AAAA`, `SRV`...), or as its number for the types without a name in OBI. | A; AAAA; SRV |
+| `dst.address` | string | `recommended` | development | Destination IP address of the flow. | 10.0.0.6 |
+| `dst.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
+| `dst.port` | int | `opt_in` | development | Destination TCP/UDP port. |  |
+| `dst.zone` | string | `opt_in` | development | Zone label attached to the destination side. | us-east-1b |
+| `error.type` | string | `conditionally_required`: if the lookup ended in an error or a timeout | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `k8s.cluster.name` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The name of the cluster. | opentelemetry-cluster |
+| `k8s.dst.name` | string | `opt_in` | development | Name of the destination Kubernetes object (e.g. Pod name). | users-api-65b8-fghij |
+| `k8s.dst.namespace` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the destination workload. | integration-test |
+| `k8s.dst.node.ip` | string | `opt_in` | development | IP address of the node hosting the destination workload. | 10.0.1.6 |
+| `k8s.dst.node.name` | string | `opt_in` | development | Name of the node hosting the destination workload. | node-2 |
+| `k8s.dst.owner.name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Name of the top-level Kubernetes owner of the destination workload. | users-api |
+| `k8s.dst.owner.type` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kind of the top-level Kubernetes owner of the destination workload. | Deployment |
+| `k8s.dst.type` | string | `opt_in` | development | Type of the destination Kubernetes object. | Pod |
+| `k8s.src.name` | string | `opt_in` | development | Name of the source Kubernetes object (e.g. Pod name). | frontend-7d9c-abcde |
+| `k8s.src.namespace` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the source workload. | integration-test |
+| `k8s.src.node.ip` | string | `opt_in` | development | IP address of the node hosting the source workload. | 10.0.1.5 |
+| `k8s.src.node.name` | string | `opt_in` | development | Name of the node hosting the source workload. | node-1 |
+| `k8s.src.owner.name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Name of the top-level Kubernetes owner of the source workload. | frontend |
+| `k8s.src.owner.type` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kind of the top-level Kubernetes owner of the source workload. | Deployment |
+| `k8s.src.type` | string | `opt_in` | development | Type of the source Kubernetes object. | Pod |
+| `obi.ip` | string | `opt_in` | development | IP address of the host running OBI. | 10.0.0.5 |
+| `service.name` | string | `opt_in` | stable | Logical name of the service. | shoppingcart |
+| `service.namespace` | string | `opt_in` | stable | A namespace for `service.name`. | Shop |
+| `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
+| `service.peer.namespace` | string | `opt_in` | development | Logical namespace of the service on the other side of the connection. SHOULD be equal to the actual [`service.namespace`](/docs/resource/README.md#service) resource attribute of the remote service if any. | Shop |
+| `src.address` | string | `recommended` | development | Source IP address of the flow. | 10.0.0.5 |
+| `src.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
+| `src.port` | int | `opt_in` | development | Source TCP/UDP port. |  |
+| `src.zone` | string | `opt_in` | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
+
+## `obi.stat.packets`
+
+TCP segments and UDP datagrams sent and received by the applications' sockets, counted per socket and read periodically from a kernel map.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | {packet} | development |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `dst.address` | string | `recommended` | development | Destination IP address of the flow. | 10.0.0.6 |
+| `dst.container.id` | string | `opt_in` | development | Container ID of the process of the remote (on the same host) socket, from its cgroup. High cardinality: for debugging. | a3bf90e006b2e6b4f4bb1e8f8b8d1f1c4f2a9d3e2c1b0a9f8e7d6c5b4a392817 |
+| `dst.container.image.name` | string | `opt_in` | development | Image name of the container of the process of the remote (on the same host) socket (Docker only). | myrepo/orders |
+| `dst.container.image.tag` | string | `opt_in` | development | Image tag of the container of the process of the remote (on the same host) socket (Docker only). | 1.4 |
+| `dst.container.name` | string | `opt_in` | development | Name of the container of the process of the remote (on the same host) socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
+| `dst.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
+| `dst.port` | int | `opt_in` | development | Destination TCP/UDP port. |  |
+| `dst.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the remote (on the same host) socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
+| `dst.zone` | string | `opt_in` | development | Zone label attached to the destination side. | us-east-1b |
+| `k8s.cluster.name` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The name of the cluster. | opentelemetry-cluster |
+| `k8s.dst.name` | string | `opt_in` | development | Name of the destination Kubernetes object (e.g. Pod name). | users-api-65b8-fghij |
+| `k8s.dst.namespace` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the destination workload. | integration-test |
+| `k8s.dst.node.ip` | string | `opt_in` | development | IP address of the node hosting the destination workload. | 10.0.1.6 |
+| `k8s.dst.node.name` | string | `opt_in` | development | Name of the node hosting the destination workload. | node-2 |
+| `k8s.dst.owner.name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Name of the top-level Kubernetes owner of the destination workload. | users-api |
+| `k8s.dst.owner.type` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kind of the top-level Kubernetes owner of the destination workload. | Deployment |
+| `k8s.dst.type` | string | `opt_in` | development | Type of the destination Kubernetes object. | Pod |
+| `k8s.src.name` | string | `opt_in` | development | Name of the source Kubernetes object (e.g. Pod name). | frontend-7d9c-abcde |
+| `k8s.src.namespace` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the source workload. | integration-test |
+| `k8s.src.node.ip` | string | `opt_in` | development | IP address of the node hosting the source workload. | 10.0.1.5 |
+| `k8s.src.node.name` | string | `opt_in` | development | Name of the node hosting the source workload. | node-1 |
+| `k8s.src.owner.name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Name of the top-level Kubernetes owner of the source workload. | frontend |
+| `k8s.src.owner.type` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kind of the top-level Kubernetes owner of the source workload. | Deployment |
+| `k8s.src.type` | string | `opt_in` | development | Type of the source Kubernetes object. | Pod |
+| `network.connection.role` | enum | `opt_in` | development | Side of the connection of the local socket. TCP takes it from the handshake (`unknown` for connections established before OBI started), UDP from the bound local ports: a socket bound to its local port is the `server`. | client; server; unknown |
+| `network.io.direction` | enum | `recommended` | development | The network IO operation direction. | transmit |
+| `network.peer.same_host` | boolean | `opt_in` | development | Whether the remote socket is on this host: its address and port are the local side of another socket traffic row (the network namespace is kept for loopback addresses), or both addresses are the same or loopback. Always `false` for the TCP stats read from the events. |  |
+| `network.transport` | enum | `recommended` | stable | [OSI transport layer](https://wikipedia.org/wiki/Transport_layer) or [inter-process communication method](https://wikipedia.org/wiki/Inter-process_communication). | tcp; udp |
+| `obi.ip` | string | `opt_in` | development | IP address of the host running OBI. | 10.0.0.5 |
+| `server.port` | int | `opt_in` | stable | Server port number. | 80; 8080; 443 |
+| `service.name` | string | `opt_in` | stable | Logical name of the service. | shoppingcart |
+| `service.namespace` | string | `opt_in` | stable | A namespace for `service.name`. | Shop |
+| `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
+| `service.peer.namespace` | string | `opt_in` | development | Logical namespace of the service on the other side of the connection. SHOULD be equal to the actual [`service.namespace`](/docs/resource/README.md#service) resource attribute of the remote service if any. | Shop |
+| `src.address` | string | `recommended` | development | Source IP address of the flow. | 10.0.0.5 |
+| `src.container.id` | string | `opt_in` | development | Container ID of the process of the local socket, from its cgroup. High cardinality: for debugging. | a3bf90e006b2e6b4f4bb1e8f8b8d1f1c4f2a9d3e2c1b0a9f8e7d6c5b4a392817 |
+| `src.container.image.name` | string | `opt_in` | development | Image name of the container of the process of the local socket (Docker only). | myrepo/orders |
+| `src.container.image.tag` | string | `opt_in` | development | Image tag of the container of the process of the local socket (Docker only). | 1.4 |
+| `src.container.name` | string | `opt_in` | development | Name of the container of the process of the local socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
+| `src.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
+| `src.port` | int | `opt_in` | development | Source TCP/UDP port. |  |
+| `src.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the local socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
+| `src.zone` | string | `opt_in` | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
+
+## `obi.stat.tcp.closed.connections`
+
+Count of TCP connections that reached the closed state, including failed connection attempts, broken down by `network.tcp.handshake.role`. Listening sockets are not counted.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | {connection} | development |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `dst.address` | string | `recommended` | development | Destination IP address of the flow. | 10.0.0.6 |
+| `dst.container.id` | string | `opt_in` | development | Container ID of the process of the remote (on the same host) socket, from its cgroup. High cardinality: for debugging. | a3bf90e006b2e6b4f4bb1e8f8b8d1f1c4f2a9d3e2c1b0a9f8e7d6c5b4a392817 |
+| `dst.container.image.name` | string | `opt_in` | development | Image name of the container of the process of the remote (on the same host) socket (Docker only). | myrepo/orders |
+| `dst.container.image.tag` | string | `opt_in` | development | Image tag of the container of the process of the remote (on the same host) socket (Docker only). | 1.4 |
+| `dst.container.name` | string | `opt_in` | development | Name of the container of the process of the remote (on the same host) socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
+| `dst.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
+| `dst.port` | int | `opt_in` | development | Destination TCP/UDP port. |  |
+| `dst.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the remote (on the same host) socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
+| `dst.zone` | string | `opt_in` | development | Zone label attached to the destination side. | us-east-1b |
+| `k8s.cluster.name` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The name of the cluster. | opentelemetry-cluster |
+| `k8s.dst.name` | string | `opt_in` | development | Name of the destination Kubernetes object (e.g. Pod name). | users-api-65b8-fghij |
+| `k8s.dst.namespace` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the destination workload. | integration-test |
+| `k8s.dst.node.ip` | string | `opt_in` | development | IP address of the node hosting the destination workload. | 10.0.1.6 |
+| `k8s.dst.node.name` | string | `opt_in` | development | Name of the node hosting the destination workload. | node-2 |
+| `k8s.dst.owner.name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Name of the top-level Kubernetes owner of the destination workload. | users-api |
+| `k8s.dst.owner.type` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kind of the top-level Kubernetes owner of the destination workload. | Deployment |
+| `k8s.dst.type` | string | `opt_in` | development | Type of the destination Kubernetes object. | Pod |
+| `k8s.src.name` | string | `opt_in` | development | Name of the source Kubernetes object (e.g. Pod name). | frontend-7d9c-abcde |
+| `k8s.src.namespace` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the source workload. | integration-test |
+| `k8s.src.node.ip` | string | `opt_in` | development | IP address of the node hosting the source workload. | 10.0.1.5 |
+| `k8s.src.node.name` | string | `opt_in` | development | Name of the node hosting the source workload. | node-1 |
+| `k8s.src.owner.name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Name of the top-level Kubernetes owner of the source workload. | frontend |
+| `k8s.src.owner.type` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kind of the top-level Kubernetes owner of the source workload. | Deployment |
+| `k8s.src.type` | string | `opt_in` | development | Type of the source Kubernetes object. | Pod |
+| `network.peer.same_host` | boolean | `opt_in` | development | Whether the remote socket is on this host: its address and port are the local side of another socket traffic row (the network namespace is kept for loopback addresses), or both addresses are the same or loopback. Always `false` for the TCP stats read from the events. |  |
+| `network.tcp.handshake.role` | enum | `opt_in` | development | Role of the local endpoint in the TCP three-way handshake (`client` initiated the SYN, `server` was awaiting it). | client; server; unknown |
+| `obi.ip` | string | `opt_in` | development | IP address of the host running OBI. | 10.0.0.5 |
+| `server.port` | int | `opt_in` | stable | Server port number. | 80; 8080; 443 |
+| `service.name` | string | `opt_in` | stable | Logical name of the service. | shoppingcart |
+| `service.namespace` | string | `opt_in` | stable | A namespace for `service.name`. | Shop |
+| `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
+| `service.peer.namespace` | string | `opt_in` | development | Logical namespace of the service on the other side of the connection. SHOULD be equal to the actual [`service.namespace`](/docs/resource/README.md#service) resource attribute of the remote service if any. | Shop |
+| `src.address` | string | `recommended` | development | Source IP address of the flow. | 10.0.0.5 |
+| `src.container.id` | string | `opt_in` | development | Container ID of the process of the local socket, from its cgroup. High cardinality: for debugging. | a3bf90e006b2e6b4f4bb1e8f8b8d1f1c4f2a9d3e2c1b0a9f8e7d6c5b4a392817 |
+| `src.container.image.name` | string | `opt_in` | development | Image name of the container of the process of the local socket (Docker only). | myrepo/orders |
+| `src.container.image.tag` | string | `opt_in` | development | Image tag of the container of the process of the local socket (Docker only). | 1.4 |
+| `src.container.name` | string | `opt_in` | development | Name of the container of the process of the local socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
+| `src.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
+| `src.port` | int | `opt_in` | development | Source TCP/UDP port. |  |
+| `src.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the local socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
+| `src.zone` | string | `opt_in` | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
+
+## `obi.stat.tcp.ecn.ce.packets`
+
+Count of sent TCP packets that a router on the path marked as ECN congestion experienced (CE) and the receiver echoed back. Read from the kernel's per-socket `delivered_ce` counter at send, receive and close, so it is non-zero only on connections that negotiated ECN. `src` is the sender of the marked packets.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | {packet} | development |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `dst.address` | string | `recommended` | development | Destination IP address of the flow. | 10.0.0.6 |
+| `dst.container.id` | string | `opt_in` | development | Container ID of the process of the remote (on the same host) socket, from its cgroup. High cardinality: for debugging. | a3bf90e006b2e6b4f4bb1e8f8b8d1f1c4f2a9d3e2c1b0a9f8e7d6c5b4a392817 |
+| `dst.container.image.name` | string | `opt_in` | development | Image name of the container of the process of the remote (on the same host) socket (Docker only). | myrepo/orders |
+| `dst.container.image.tag` | string | `opt_in` | development | Image tag of the container of the process of the remote (on the same host) socket (Docker only). | 1.4 |
+| `dst.container.name` | string | `opt_in` | development | Name of the container of the process of the remote (on the same host) socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
+| `dst.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
+| `dst.port` | int | `opt_in` | development | Destination TCP/UDP port. |  |
+| `dst.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the remote (on the same host) socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
+| `dst.zone` | string | `opt_in` | development | Zone label attached to the destination side. | us-east-1b |
+| `k8s.cluster.name` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The name of the cluster. | opentelemetry-cluster |
+| `k8s.dst.name` | string | `opt_in` | development | Name of the destination Kubernetes object (e.g. Pod name). | users-api-65b8-fghij |
+| `k8s.dst.namespace` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the destination workload. | integration-test |
+| `k8s.dst.node.ip` | string | `opt_in` | development | IP address of the node hosting the destination workload. | 10.0.1.6 |
+| `k8s.dst.node.name` | string | `opt_in` | development | Name of the node hosting the destination workload. | node-2 |
+| `k8s.dst.owner.name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Name of the top-level Kubernetes owner of the destination workload. | users-api |
+| `k8s.dst.owner.type` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kind of the top-level Kubernetes owner of the destination workload. | Deployment |
+| `k8s.dst.type` | string | `opt_in` | development | Type of the destination Kubernetes object. | Pod |
+| `k8s.src.name` | string | `opt_in` | development | Name of the source Kubernetes object (e.g. Pod name). | frontend-7d9c-abcde |
+| `k8s.src.namespace` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the source workload. | integration-test |
+| `k8s.src.node.ip` | string | `opt_in` | development | IP address of the node hosting the source workload. | 10.0.1.5 |
+| `k8s.src.node.name` | string | `opt_in` | development | Name of the node hosting the source workload. | node-1 |
+| `k8s.src.owner.name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Name of the top-level Kubernetes owner of the source workload. | frontend |
+| `k8s.src.owner.type` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kind of the top-level Kubernetes owner of the source workload. | Deployment |
+| `k8s.src.type` | string | `opt_in` | development | Type of the source Kubernetes object. | Pod |
+| `network.peer.same_host` | boolean | `opt_in` | development | Whether the remote socket is on this host: its address and port are the local side of another socket traffic row (the network namespace is kept for loopback addresses), or both addresses are the same or loopback. Always `false` for the TCP stats read from the events. |  |
+| `network.tcp.handshake.role` | enum | `opt_in` | development | Role of the local endpoint in the TCP three-way handshake (`client` initiated the SYN, `server` was awaiting it). | client; server; unknown |
+| `obi.ip` | string | `opt_in` | development | IP address of the host running OBI. | 10.0.0.5 |
+| `server.port` | int | `opt_in` | stable | Server port number. | 80; 8080; 443 |
+| `service.name` | string | `opt_in` | stable | Logical name of the service. | shoppingcart |
+| `service.namespace` | string | `opt_in` | stable | A namespace for `service.name`. | Shop |
+| `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
+| `service.peer.namespace` | string | `opt_in` | development | Logical namespace of the service on the other side of the connection. SHOULD be equal to the actual [`service.namespace`](/docs/resource/README.md#service) resource attribute of the remote service if any. | Shop |
+| `src.address` | string | `recommended` | development | Source IP address of the flow. | 10.0.0.5 |
+| `src.container.id` | string | `opt_in` | development | Container ID of the process of the local socket, from its cgroup. High cardinality: for debugging. | a3bf90e006b2e6b4f4bb1e8f8b8d1f1c4f2a9d3e2c1b0a9f8e7d6c5b4a392817 |
+| `src.container.image.name` | string | `opt_in` | development | Image name of the container of the process of the local socket (Docker only). | myrepo/orders |
+| `src.container.image.tag` | string | `opt_in` | development | Image tag of the container of the process of the local socket (Docker only). | 1.4 |
+| `src.container.name` | string | `opt_in` | development | Name of the container of the process of the local socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
+| `src.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
+| `src.port` | int | `opt_in` | development | Source TCP/UDP port. |  |
+| `src.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the local socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
+| `src.zone` | string | `opt_in` | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
+
 ## `obi.stat.tcp.failed.connections`
 
 Count of TCP connections that failed to establish, broken down by `reason`.
@@ -1367,8 +1621,13 @@ Count of TCP connections that failed to establish, broken down by `reason`.
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `dst.address` | string | `recommended` | development | Destination IP address of the flow. | 10.0.0.6 |
+| `dst.container.id` | string | `opt_in` | development | Container ID of the process of the remote (on the same host) socket, from its cgroup. High cardinality: for debugging. | a3bf90e006b2e6b4f4bb1e8f8b8d1f1c4f2a9d3e2c1b0a9f8e7d6c5b4a392817 |
+| `dst.container.image.name` | string | `opt_in` | development | Image name of the container of the process of the remote (on the same host) socket (Docker only). | myrepo/orders |
+| `dst.container.image.tag` | string | `opt_in` | development | Image tag of the container of the process of the remote (on the same host) socket (Docker only). | 1.4 |
+| `dst.container.name` | string | `opt_in` | development | Name of the container of the process of the remote (on the same host) socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
 | `dst.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
 | `dst.port` | int | `opt_in` | development | Destination TCP/UDP port. |  |
+| `dst.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the remote (on the same host) socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
 | `dst.zone` | string | `opt_in` | development | Zone label attached to the destination side. | us-east-1b |
 | `k8s.cluster.name` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The name of the cluster. | opentelemetry-cluster |
 | `k8s.dst.name` | string | `opt_in` | development | Name of the destination Kubernetes object (e.g. Pod name). | users-api-65b8-fghij |
@@ -1388,13 +1647,72 @@ Count of TCP connections that failed to establish, broken down by `reason`.
 | `network.tcp.handshake.role` | enum | `opt_in` | development | Role of the local endpoint in the TCP three-way handshake (`client` initiated the SYN, `server` was awaiting it). | client; server; unknown |
 | `obi.ip` | string | `opt_in` | development | IP address of the host running OBI. | 10.0.0.5 |
 | `reason` | enum | `opt_in` | development | Classification of why a TCP connection failed. | refused; reset; timed-out; host-unreachable; net-unreachable; other; unknown |
+| `server.port` | int | `opt_in` | stable | Server port number. | 80; 8080; 443 |
 | `service.name` | string | `opt_in` | stable | Logical name of the service. | shoppingcart |
 | `service.namespace` | string | `opt_in` | stable | A namespace for `service.name`. | Shop |
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `service.peer.namespace` | string | `opt_in` | development | Logical namespace of the service on the other side of the connection. SHOULD be equal to the actual [`service.namespace`](/docs/resource/README.md#service) resource attribute of the remote service if any. | Shop |
 | `src.address` | string | `recommended` | development | Source IP address of the flow. | 10.0.0.5 |
+| `src.container.id` | string | `opt_in` | development | Container ID of the process of the local socket, from its cgroup. High cardinality: for debugging. | a3bf90e006b2e6b4f4bb1e8f8b8d1f1c4f2a9d3e2c1b0a9f8e7d6c5b4a392817 |
+| `src.container.image.name` | string | `opt_in` | development | Image name of the container of the process of the local socket (Docker only). | myrepo/orders |
+| `src.container.image.tag` | string | `opt_in` | development | Image tag of the container of the process of the local socket (Docker only). | 1.4 |
+| `src.container.name` | string | `opt_in` | development | Name of the container of the process of the local socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
 | `src.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
 | `src.port` | int | `opt_in` | development | Source TCP/UDP port. |  |
+| `src.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the local socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
+| `src.zone` | string | `opt_in` | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
+
+## `obi.stat.tcp.flow_control.events`
+
+Count of TCP flow-control events. For `zero_window`, one event is one zero-window probe sent because the peer advertised a zero receive window, so a longer stall produces more events. `src` is the blocked sender, `dst` is the receiver that is not reading.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | {event} | development |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `dst.address` | string | `recommended` | development | Destination IP address of the flow. | 10.0.0.6 |
+| `dst.container.id` | string | `opt_in` | development | Container ID of the process of the remote (on the same host) socket, from its cgroup. High cardinality: for debugging. | a3bf90e006b2e6b4f4bb1e8f8b8d1f1c4f2a9d3e2c1b0a9f8e7d6c5b4a392817 |
+| `dst.container.image.name` | string | `opt_in` | development | Image name of the container of the process of the remote (on the same host) socket (Docker only). | myrepo/orders |
+| `dst.container.image.tag` | string | `opt_in` | development | Image tag of the container of the process of the remote (on the same host) socket (Docker only). | 1.4 |
+| `dst.container.name` | string | `opt_in` | development | Name of the container of the process of the remote (on the same host) socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
+| `dst.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
+| `dst.port` | int | `opt_in` | development | Destination TCP/UDP port. |  |
+| `dst.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the remote (on the same host) socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
+| `dst.zone` | string | `opt_in` | development | Zone label attached to the destination side. | us-east-1b |
+| `k8s.cluster.name` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The name of the cluster. | opentelemetry-cluster |
+| `k8s.dst.name` | string | `opt_in` | development | Name of the destination Kubernetes object (e.g. Pod name). | users-api-65b8-fghij |
+| `k8s.dst.namespace` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the destination workload. | integration-test |
+| `k8s.dst.node.ip` | string | `opt_in` | development | IP address of the node hosting the destination workload. | 10.0.1.6 |
+| `k8s.dst.node.name` | string | `opt_in` | development | Name of the node hosting the destination workload. | node-2 |
+| `k8s.dst.owner.name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Name of the top-level Kubernetes owner of the destination workload. | users-api |
+| `k8s.dst.owner.type` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kind of the top-level Kubernetes owner of the destination workload. | Deployment |
+| `k8s.dst.type` | string | `opt_in` | development | Type of the destination Kubernetes object. | Pod |
+| `k8s.src.name` | string | `opt_in` | development | Name of the source Kubernetes object (e.g. Pod name). | frontend-7d9c-abcde |
+| `k8s.src.namespace` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the source workload. | integration-test |
+| `k8s.src.node.ip` | string | `opt_in` | development | IP address of the node hosting the source workload. | 10.0.1.5 |
+| `k8s.src.node.name` | string | `opt_in` | development | Name of the node hosting the source workload. | node-1 |
+| `k8s.src.owner.name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Name of the top-level Kubernetes owner of the source workload. | frontend |
+| `k8s.src.owner.type` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kind of the top-level Kubernetes owner of the source workload. | Deployment |
+| `k8s.src.type` | string | `opt_in` | development | Type of the source Kubernetes object. | Pod |
+| `network.peer.same_host` | boolean | `opt_in` | development | Whether the remote socket is on this host: its address and port are the local side of another socket traffic row (the network namespace is kept for loopback addresses), or both addresses are the same or loopback. Always `false` for the TCP stats read from the events. |  |
+| `network.tcp.flow_control.event` | enum | `recommended` | development | Kind of TCP flow-control event. `zero_window` is a zero-window probe sent while the peer advertises a zero receive window. | zero_window; unknown |
+| `network.tcp.handshake.role` | enum | `opt_in` | development | Role of the local endpoint in the TCP three-way handshake (`client` initiated the SYN, `server` was awaiting it). | client; server; unknown |
+| `obi.ip` | string | `opt_in` | development | IP address of the host running OBI. | 10.0.0.5 |
+| `server.port` | int | `opt_in` | stable | Server port number. | 80; 8080; 443 |
+| `service.name` | string | `opt_in` | stable | Logical name of the service. | shoppingcart |
+| `service.namespace` | string | `opt_in` | stable | A namespace for `service.name`. | Shop |
+| `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
+| `service.peer.namespace` | string | `opt_in` | development | Logical namespace of the service on the other side of the connection. SHOULD be equal to the actual [`service.namespace`](/docs/resource/README.md#service) resource attribute of the remote service if any. | Shop |
+| `src.address` | string | `recommended` | development | Source IP address of the flow. | 10.0.0.5 |
+| `src.container.id` | string | `opt_in` | development | Container ID of the process of the local socket, from its cgroup. High cardinality: for debugging. | a3bf90e006b2e6b4f4bb1e8f8b8d1f1c4f2a9d3e2c1b0a9f8e7d6c5b4a392817 |
+| `src.container.image.name` | string | `opt_in` | development | Image name of the container of the process of the local socket (Docker only). | myrepo/orders |
+| `src.container.image.tag` | string | `opt_in` | development | Image tag of the container of the process of the local socket (Docker only). | 1.4 |
+| `src.container.name` | string | `opt_in` | development | Name of the container of the process of the local socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
+| `src.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
+| `src.port` | int | `opt_in` | development | Source TCP/UDP port. |  |
+| `src.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the local socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
 | `src.zone` | string | `opt_in` | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
 
 ## `obi.stat.tcp.io`
@@ -1408,8 +1726,13 @@ Count of bytes transferred at the socket layer per TCP connection, broken down b
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `dst.address` | string | `recommended` | development | Destination IP address of the flow. | 10.0.0.6 |
+| `dst.container.id` | string | `opt_in` | development | Container ID of the process of the remote (on the same host) socket, from its cgroup. High cardinality: for debugging. | a3bf90e006b2e6b4f4bb1e8f8b8d1f1c4f2a9d3e2c1b0a9f8e7d6c5b4a392817 |
+| `dst.container.image.name` | string | `opt_in` | development | Image name of the container of the process of the remote (on the same host) socket (Docker only). | myrepo/orders |
+| `dst.container.image.tag` | string | `opt_in` | development | Image tag of the container of the process of the remote (on the same host) socket (Docker only). | 1.4 |
+| `dst.container.name` | string | `opt_in` | development | Name of the container of the process of the remote (on the same host) socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
 | `dst.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
 | `dst.port` | int | `opt_in` | development | Destination TCP/UDP port. |  |
+| `dst.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the remote (on the same host) socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
 | `dst.zone` | string | `opt_in` | development | Zone label attached to the destination side. | us-east-1b |
 | `k8s.cluster.name` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The name of the cluster. | opentelemetry-cluster |
 | `k8s.dst.name` | string | `opt_in` | development | Name of the destination Kubernetes object (e.g. Pod name). | users-api-65b8-fghij |
@@ -1427,14 +1750,125 @@ Count of bytes transferred at the socket layer per TCP connection, broken down b
 | `k8s.src.owner.type` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kind of the top-level Kubernetes owner of the source workload. | Deployment |
 | `k8s.src.type` | string | `opt_in` | development | Type of the source Kubernetes object. | Pod |
 | `network.io.direction` | enum | `recommended` | development | The network IO operation direction. | transmit |
+| `network.peer.same_host` | boolean | `opt_in` | development | Whether the remote socket is on this host: its address and port are the local side of another socket traffic row (the network namespace is kept for loopback addresses), or both addresses are the same or loopback. Always `false` for the TCP stats read from the events. |  |
 | `obi.ip` | string | `opt_in` | development | IP address of the host running OBI. | 10.0.0.5 |
+| `server.port` | int | `opt_in` | stable | Server port number. | 80; 8080; 443 |
 | `service.name` | string | `opt_in` | stable | Logical name of the service. | shoppingcart |
 | `service.namespace` | string | `opt_in` | stable | A namespace for `service.name`. | Shop |
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `service.peer.namespace` | string | `opt_in` | development | Logical namespace of the service on the other side of the connection. SHOULD be equal to the actual [`service.namespace`](/docs/resource/README.md#service) resource attribute of the remote service if any. | Shop |
 | `src.address` | string | `recommended` | development | Source IP address of the flow. | 10.0.0.5 |
+| `src.container.id` | string | `opt_in` | development | Container ID of the process of the local socket, from its cgroup. High cardinality: for debugging. | a3bf90e006b2e6b4f4bb1e8f8b8d1f1c4f2a9d3e2c1b0a9f8e7d6c5b4a392817 |
+| `src.container.image.name` | string | `opt_in` | development | Image name of the container of the process of the local socket (Docker only). | myrepo/orders |
+| `src.container.image.tag` | string | `opt_in` | development | Image tag of the container of the process of the local socket (Docker only). | 1.4 |
+| `src.container.name` | string | `opt_in` | development | Name of the container of the process of the local socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
 | `src.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
 | `src.port` | int | `opt_in` | development | Source TCP/UDP port. |  |
+| `src.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the local socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
+| `src.zone` | string | `opt_in` | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
+
+## `obi.stat.tcp.out_of_order.packets`
+
+Count of TCP packets received out of order (with a gap before them). Read from the kernel's per-socket `rcv_ooopack` counter at send, receive and close. `src` is the receiver of the out-of-order packets.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | {packet} | development |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `dst.address` | string | `recommended` | development | Destination IP address of the flow. | 10.0.0.6 |
+| `dst.container.id` | string | `opt_in` | development | Container ID of the process of the remote (on the same host) socket, from its cgroup. High cardinality: for debugging. | a3bf90e006b2e6b4f4bb1e8f8b8d1f1c4f2a9d3e2c1b0a9f8e7d6c5b4a392817 |
+| `dst.container.image.name` | string | `opt_in` | development | Image name of the container of the process of the remote (on the same host) socket (Docker only). | myrepo/orders |
+| `dst.container.image.tag` | string | `opt_in` | development | Image tag of the container of the process of the remote (on the same host) socket (Docker only). | 1.4 |
+| `dst.container.name` | string | `opt_in` | development | Name of the container of the process of the remote (on the same host) socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
+| `dst.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
+| `dst.port` | int | `opt_in` | development | Destination TCP/UDP port. |  |
+| `dst.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the remote (on the same host) socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
+| `dst.zone` | string | `opt_in` | development | Zone label attached to the destination side. | us-east-1b |
+| `k8s.cluster.name` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The name of the cluster. | opentelemetry-cluster |
+| `k8s.dst.name` | string | `opt_in` | development | Name of the destination Kubernetes object (e.g. Pod name). | users-api-65b8-fghij |
+| `k8s.dst.namespace` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the destination workload. | integration-test |
+| `k8s.dst.node.ip` | string | `opt_in` | development | IP address of the node hosting the destination workload. | 10.0.1.6 |
+| `k8s.dst.node.name` | string | `opt_in` | development | Name of the node hosting the destination workload. | node-2 |
+| `k8s.dst.owner.name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Name of the top-level Kubernetes owner of the destination workload. | users-api |
+| `k8s.dst.owner.type` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kind of the top-level Kubernetes owner of the destination workload. | Deployment |
+| `k8s.dst.type` | string | `opt_in` | development | Type of the destination Kubernetes object. | Pod |
+| `k8s.src.name` | string | `opt_in` | development | Name of the source Kubernetes object (e.g. Pod name). | frontend-7d9c-abcde |
+| `k8s.src.namespace` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the source workload. | integration-test |
+| `k8s.src.node.ip` | string | `opt_in` | development | IP address of the node hosting the source workload. | 10.0.1.5 |
+| `k8s.src.node.name` | string | `opt_in` | development | Name of the node hosting the source workload. | node-1 |
+| `k8s.src.owner.name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Name of the top-level Kubernetes owner of the source workload. | frontend |
+| `k8s.src.owner.type` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kind of the top-level Kubernetes owner of the source workload. | Deployment |
+| `k8s.src.type` | string | `opt_in` | development | Type of the source Kubernetes object. | Pod |
+| `network.peer.same_host` | boolean | `opt_in` | development | Whether the remote socket is on this host: its address and port are the local side of another socket traffic row (the network namespace is kept for loopback addresses), or both addresses are the same or loopback. Always `false` for the TCP stats read from the events. |  |
+| `network.tcp.handshake.role` | enum | `opt_in` | development | Role of the local endpoint in the TCP three-way handshake (`client` initiated the SYN, `server` was awaiting it). | client; server; unknown |
+| `obi.ip` | string | `opt_in` | development | IP address of the host running OBI. | 10.0.0.5 |
+| `server.port` | int | `opt_in` | stable | Server port number. | 80; 8080; 443 |
+| `service.name` | string | `opt_in` | stable | Logical name of the service. | shoppingcart |
+| `service.namespace` | string | `opt_in` | stable | A namespace for `service.name`. | Shop |
+| `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
+| `service.peer.namespace` | string | `opt_in` | development | Logical namespace of the service on the other side of the connection. SHOULD be equal to the actual [`service.namespace`](/docs/resource/README.md#service) resource attribute of the remote service if any. | Shop |
+| `src.address` | string | `recommended` | development | Source IP address of the flow. | 10.0.0.5 |
+| `src.container.id` | string | `opt_in` | development | Container ID of the process of the local socket, from its cgroup. High cardinality: for debugging. | a3bf90e006b2e6b4f4bb1e8f8b8d1f1c4f2a9d3e2c1b0a9f8e7d6c5b4a392817 |
+| `src.container.image.name` | string | `opt_in` | development | Image name of the container of the process of the local socket (Docker only). | myrepo/orders |
+| `src.container.image.tag` | string | `opt_in` | development | Image tag of the container of the process of the local socket (Docker only). | 1.4 |
+| `src.container.name` | string | `opt_in` | development | Name of the container of the process of the local socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
+| `src.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
+| `src.port` | int | `opt_in` | development | Source TCP/UDP port. |  |
+| `src.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the local socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
+| `src.zone` | string | `opt_in` | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
+
+## `obi.stat.tcp.reordering.events`
+
+Count of TCP data packet reordering events detected by the sender from ACKs and SACKs. Read from the kernel's per-socket `reord_seen` counter at send, receive and close. `src` is the sender of the reordered packets.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | {event} | development |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `dst.address` | string | `recommended` | development | Destination IP address of the flow. | 10.0.0.6 |
+| `dst.container.id` | string | `opt_in` | development | Container ID of the process of the remote (on the same host) socket, from its cgroup. High cardinality: for debugging. | a3bf90e006b2e6b4f4bb1e8f8b8d1f1c4f2a9d3e2c1b0a9f8e7d6c5b4a392817 |
+| `dst.container.image.name` | string | `opt_in` | development | Image name of the container of the process of the remote (on the same host) socket (Docker only). | myrepo/orders |
+| `dst.container.image.tag` | string | `opt_in` | development | Image tag of the container of the process of the remote (on the same host) socket (Docker only). | 1.4 |
+| `dst.container.name` | string | `opt_in` | development | Name of the container of the process of the remote (on the same host) socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
+| `dst.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
+| `dst.port` | int | `opt_in` | development | Destination TCP/UDP port. |  |
+| `dst.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the remote (on the same host) socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
+| `dst.zone` | string | `opt_in` | development | Zone label attached to the destination side. | us-east-1b |
+| `k8s.cluster.name` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The name of the cluster. | opentelemetry-cluster |
+| `k8s.dst.name` | string | `opt_in` | development | Name of the destination Kubernetes object (e.g. Pod name). | users-api-65b8-fghij |
+| `k8s.dst.namespace` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the destination workload. | integration-test |
+| `k8s.dst.node.ip` | string | `opt_in` | development | IP address of the node hosting the destination workload. | 10.0.1.6 |
+| `k8s.dst.node.name` | string | `opt_in` | development | Name of the node hosting the destination workload. | node-2 |
+| `k8s.dst.owner.name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Name of the top-level Kubernetes owner of the destination workload. | users-api |
+| `k8s.dst.owner.type` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kind of the top-level Kubernetes owner of the destination workload. | Deployment |
+| `k8s.dst.type` | string | `opt_in` | development | Type of the destination Kubernetes object. | Pod |
+| `k8s.src.name` | string | `opt_in` | development | Name of the source Kubernetes object (e.g. Pod name). | frontend-7d9c-abcde |
+| `k8s.src.namespace` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the source workload. | integration-test |
+| `k8s.src.node.ip` | string | `opt_in` | development | IP address of the node hosting the source workload. | 10.0.1.5 |
+| `k8s.src.node.name` | string | `opt_in` | development | Name of the node hosting the source workload. | node-1 |
+| `k8s.src.owner.name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Name of the top-level Kubernetes owner of the source workload. | frontend |
+| `k8s.src.owner.type` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kind of the top-level Kubernetes owner of the source workload. | Deployment |
+| `k8s.src.type` | string | `opt_in` | development | Type of the source Kubernetes object. | Pod |
+| `network.peer.same_host` | boolean | `opt_in` | development | Whether the remote socket is on this host: its address and port are the local side of another socket traffic row (the network namespace is kept for loopback addresses), or both addresses are the same or loopback. Always `false` for the TCP stats read from the events. |  |
+| `network.tcp.handshake.role` | enum | `opt_in` | development | Role of the local endpoint in the TCP three-way handshake (`client` initiated the SYN, `server` was awaiting it). | client; server; unknown |
+| `obi.ip` | string | `opt_in` | development | IP address of the host running OBI. | 10.0.0.5 |
+| `server.port` | int | `opt_in` | stable | Server port number. | 80; 8080; 443 |
+| `service.name` | string | `opt_in` | stable | Logical name of the service. | shoppingcart |
+| `service.namespace` | string | `opt_in` | stable | A namespace for `service.name`. | Shop |
+| `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
+| `service.peer.namespace` | string | `opt_in` | development | Logical namespace of the service on the other side of the connection. SHOULD be equal to the actual [`service.namespace`](/docs/resource/README.md#service) resource attribute of the remote service if any. | Shop |
+| `src.address` | string | `recommended` | development | Source IP address of the flow. | 10.0.0.5 |
+| `src.container.id` | string | `opt_in` | development | Container ID of the process of the local socket, from its cgroup. High cardinality: for debugging. | a3bf90e006b2e6b4f4bb1e8f8b8d1f1c4f2a9d3e2c1b0a9f8e7d6c5b4a392817 |
+| `src.container.image.name` | string | `opt_in` | development | Image name of the container of the process of the local socket (Docker only). | myrepo/orders |
+| `src.container.image.tag` | string | `opt_in` | development | Image tag of the container of the process of the local socket (Docker only). | 1.4 |
+| `src.container.name` | string | `opt_in` | development | Name of the container of the process of the local socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
+| `src.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
+| `src.port` | int | `opt_in` | development | Source TCP/UDP port. |  |
+| `src.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the local socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
 | `src.zone` | string | `opt_in` | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
 
 ## `obi.stat.tcp.retransmits`
@@ -1448,8 +1882,13 @@ Count of TCP retransmissions observed per connection.
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `dst.address` | string | `recommended` | development | Destination IP address of the flow. | 10.0.0.6 |
+| `dst.container.id` | string | `opt_in` | development | Container ID of the process of the remote (on the same host) socket, from its cgroup. High cardinality: for debugging. | a3bf90e006b2e6b4f4bb1e8f8b8d1f1c4f2a9d3e2c1b0a9f8e7d6c5b4a392817 |
+| `dst.container.image.name` | string | `opt_in` | development | Image name of the container of the process of the remote (on the same host) socket (Docker only). | myrepo/orders |
+| `dst.container.image.tag` | string | `opt_in` | development | Image tag of the container of the process of the remote (on the same host) socket (Docker only). | 1.4 |
+| `dst.container.name` | string | `opt_in` | development | Name of the container of the process of the remote (on the same host) socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
 | `dst.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
 | `dst.port` | int | `opt_in` | development | Destination TCP/UDP port. |  |
+| `dst.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the remote (on the same host) socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
 | `dst.zone` | string | `opt_in` | development | Zone label attached to the destination side. | us-east-1b |
 | `k8s.cluster.name` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The name of the cluster. | opentelemetry-cluster |
 | `k8s.dst.name` | string | `opt_in` | development | Name of the destination Kubernetes object (e.g. Pod name). | users-api-65b8-fghij |
@@ -1466,14 +1905,22 @@ Count of TCP retransmissions observed per connection.
 | `k8s.src.owner.name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Name of the top-level Kubernetes owner of the source workload. | frontend |
 | `k8s.src.owner.type` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kind of the top-level Kubernetes owner of the source workload. | Deployment |
 | `k8s.src.type` | string | `opt_in` | development | Type of the source Kubernetes object. | Pod |
+| `network.peer.same_host` | boolean | `opt_in` | development | Whether the remote socket is on this host: its address and port are the local side of another socket traffic row (the network namespace is kept for loopback addresses), or both addresses are the same or loopback. Always `false` for the TCP stats read from the events. |  |
+| `network.tcp.retransmit.type` | enum | `recommended` | development | Cause of a TCP retransmission: `timeout` when the retransmission timer expired, `fast` during fast recovery (duplicate ACKs or SACK), `other` for anything else (e.g. tail loss probes). | timeout; fast; other |
 | `obi.ip` | string | `opt_in` | development | IP address of the host running OBI. | 10.0.0.5 |
+| `server.port` | int | `opt_in` | stable | Server port number. | 80; 8080; 443 |
 | `service.name` | string | `opt_in` | stable | Logical name of the service. | shoppingcart |
 | `service.namespace` | string | `opt_in` | stable | A namespace for `service.name`. | Shop |
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `service.peer.namespace` | string | `opt_in` | development | Logical namespace of the service on the other side of the connection. SHOULD be equal to the actual [`service.namespace`](/docs/resource/README.md#service) resource attribute of the remote service if any. | Shop |
 | `src.address` | string | `recommended` | development | Source IP address of the flow. | 10.0.0.5 |
+| `src.container.id` | string | `opt_in` | development | Container ID of the process of the local socket, from its cgroup. High cardinality: for debugging. | a3bf90e006b2e6b4f4bb1e8f8b8d1f1c4f2a9d3e2c1b0a9f8e7d6c5b4a392817 |
+| `src.container.image.name` | string | `opt_in` | development | Image name of the container of the process of the local socket (Docker only). | myrepo/orders |
+| `src.container.image.tag` | string | `opt_in` | development | Image tag of the container of the process of the local socket (Docker only). | 1.4 |
+| `src.container.name` | string | `opt_in` | development | Name of the container of the process of the local socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
 | `src.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
 | `src.port` | int | `opt_in` | development | Source TCP/UDP port. |  |
+| `src.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the local socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
 | `src.zone` | string | `opt_in` | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
 
 ## `obi.stat.tcp.rtt`
@@ -1487,8 +1934,13 @@ Smoothed round-trip time observed per TCP connection.
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `dst.address` | string | `recommended` | development | Destination IP address of the flow. | 10.0.0.6 |
+| `dst.container.id` | string | `opt_in` | development | Container ID of the process of the remote (on the same host) socket, from its cgroup. High cardinality: for debugging. | a3bf90e006b2e6b4f4bb1e8f8b8d1f1c4f2a9d3e2c1b0a9f8e7d6c5b4a392817 |
+| `dst.container.image.name` | string | `opt_in` | development | Image name of the container of the process of the remote (on the same host) socket (Docker only). | myrepo/orders |
+| `dst.container.image.tag` | string | `opt_in` | development | Image tag of the container of the process of the remote (on the same host) socket (Docker only). | 1.4 |
+| `dst.container.name` | string | `opt_in` | development | Name of the container of the process of the remote (on the same host) socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
 | `dst.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
 | `dst.port` | int | `opt_in` | development | Destination TCP/UDP port. |  |
+| `dst.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the remote (on the same host) socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
 | `dst.zone` | string | `opt_in` | development | Zone label attached to the destination side. | us-east-1b |
 | `k8s.cluster.name` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The name of the cluster. | opentelemetry-cluster |
 | `k8s.dst.name` | string | `opt_in` | development | Name of the destination Kubernetes object (e.g. Pod name). | users-api-65b8-fghij |
@@ -1505,15 +1957,22 @@ Smoothed round-trip time observed per TCP connection.
 | `k8s.src.owner.name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Name of the top-level Kubernetes owner of the source workload. | frontend |
 | `k8s.src.owner.type` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kind of the top-level Kubernetes owner of the source workload. | Deployment |
 | `k8s.src.type` | string | `opt_in` | development | Type of the source Kubernetes object. | Pod |
+| `network.peer.same_host` | boolean | `opt_in` | development | Whether the remote socket is on this host: its address and port are the local side of another socket traffic row (the network namespace is kept for loopback addresses), or both addresses are the same or loopback. Always `false` for the TCP stats read from the events. |  |
 | `network.tcp.handshake.role` | enum | `opt_in` | development | Role of the local endpoint in the TCP three-way handshake (`client` initiated the SYN, `server` was awaiting it). | client; server; unknown |
 | `obi.ip` | string | `opt_in` | development | IP address of the host running OBI. | 10.0.0.5 |
+| `server.port` | int | `opt_in` | stable | Server port number. | 80; 8080; 443 |
 | `service.name` | string | `opt_in` | stable | Logical name of the service. | shoppingcart |
 | `service.namespace` | string | `opt_in` | stable | A namespace for `service.name`. | Shop |
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `service.peer.namespace` | string | `opt_in` | development | Logical namespace of the service on the other side of the connection. SHOULD be equal to the actual [`service.namespace`](/docs/resource/README.md#service) resource attribute of the remote service if any. | Shop |
 | `src.address` | string | `recommended` | development | Source IP address of the flow. | 10.0.0.5 |
+| `src.container.id` | string | `opt_in` | development | Container ID of the process of the local socket, from its cgroup. High cardinality: for debugging. | a3bf90e006b2e6b4f4bb1e8f8b8d1f1c4f2a9d3e2c1b0a9f8e7d6c5b4a392817 |
+| `src.container.image.name` | string | `opt_in` | development | Image name of the container of the process of the local socket (Docker only). | myrepo/orders |
+| `src.container.image.tag` | string | `opt_in` | development | Image tag of the container of the process of the local socket (Docker only). | 1.4 |
+| `src.container.name` | string | `opt_in` | development | Name of the container of the process of the local socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
 | `src.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
 | `src.port` | int | `opt_in` | development | Source TCP/UDP port. |  |
+| `src.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the local socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
 | `src.zone` | string | `opt_in` | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
 
 ## `obi.stat.tcp.successful.connections`
@@ -1527,8 +1986,13 @@ Count of TCP connections that completed the three-way handshake, broken down by 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `dst.address` | string | `recommended` | development | Destination IP address of the flow. | 10.0.0.6 |
+| `dst.container.id` | string | `opt_in` | development | Container ID of the process of the remote (on the same host) socket, from its cgroup. High cardinality: for debugging. | a3bf90e006b2e6b4f4bb1e8f8b8d1f1c4f2a9d3e2c1b0a9f8e7d6c5b4a392817 |
+| `dst.container.image.name` | string | `opt_in` | development | Image name of the container of the process of the remote (on the same host) socket (Docker only). | myrepo/orders |
+| `dst.container.image.tag` | string | `opt_in` | development | Image tag of the container of the process of the remote (on the same host) socket (Docker only). | 1.4 |
+| `dst.container.name` | string | `opt_in` | development | Name of the container of the process of the remote (on the same host) socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
 | `dst.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
 | `dst.port` | int | `opt_in` | development | Destination TCP/UDP port. |  |
+| `dst.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the remote (on the same host) socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
 | `dst.zone` | string | `opt_in` | development | Zone label attached to the destination side. | us-east-1b |
 | `k8s.cluster.name` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The name of the cluster. | opentelemetry-cluster |
 | `k8s.dst.name` | string | `opt_in` | development | Name of the destination Kubernetes object (e.g. Pod name). | users-api-65b8-fghij |
@@ -1545,16 +2009,93 @@ Count of TCP connections that completed the three-way handshake, broken down by 
 | `k8s.src.owner.name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Name of the top-level Kubernetes owner of the source workload. | frontend |
 | `k8s.src.owner.type` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kind of the top-level Kubernetes owner of the source workload. | Deployment |
 | `k8s.src.type` | string | `opt_in` | development | Type of the source Kubernetes object. | Pod |
+| `network.peer.same_host` | boolean | `opt_in` | development | Whether the remote socket is on this host: its address and port are the local side of another socket traffic row (the network namespace is kept for loopback addresses), or both addresses are the same or loopback. Always `false` for the TCP stats read from the events. |  |
 | `network.tcp.handshake.role` | enum | `opt_in` | development | Role of the local endpoint in the TCP three-way handshake (`client` initiated the SYN, `server` was awaiting it). | client; server; unknown |
 | `obi.ip` | string | `opt_in` | development | IP address of the host running OBI. | 10.0.0.5 |
+| `server.port` | int | `opt_in` | stable | Server port number. | 80; 8080; 443 |
 | `service.name` | string | `opt_in` | stable | Logical name of the service. | shoppingcart |
 | `service.namespace` | string | `opt_in` | stable | A namespace for `service.name`. | Shop |
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `service.peer.namespace` | string | `opt_in` | development | Logical namespace of the service on the other side of the connection. SHOULD be equal to the actual [`service.namespace`](/docs/resource/README.md#service) resource attribute of the remote service if any. | Shop |
 | `src.address` | string | `recommended` | development | Source IP address of the flow. | 10.0.0.5 |
+| `src.container.id` | string | `opt_in` | development | Container ID of the process of the local socket, from its cgroup. High cardinality: for debugging. | a3bf90e006b2e6b4f4bb1e8f8b8d1f1c4f2a9d3e2c1b0a9f8e7d6c5b4a392817 |
+| `src.container.image.name` | string | `opt_in` | development | Image name of the container of the process of the local socket (Docker only). | myrepo/orders |
+| `src.container.image.tag` | string | `opt_in` | development | Image tag of the container of the process of the local socket (Docker only). | 1.4 |
+| `src.container.name` | string | `opt_in` | development | Name of the container of the process of the local socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
 | `src.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
 | `src.port` | int | `opt_in` | development | Source TCP/UDP port. |  |
+| `src.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the local socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
 | `src.zone` | string | `opt_in` | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
+
+## `obi.stats.dns.dropped.questions`
+
+DNS questions of the stats DNS lookups dropped because too many questions were waiting for an answer.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | {question} | development |
+
+No attributes.
+
+## `obi.stats.dns.reader.lag`
+
+Longest time, since the previous report, between a DNS packet of the stats DNS lookups and its read by OBI.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| gauge | s | development |
+
+No attributes.
+
+## `obi.stats.dns.server_key.merges`
+
+DNS question copies of the stats DNS lookups matched to an earlier question only by its server address, DNS ID and question, as after SNAT. Two different clients asking the same question with the same DNS ID within 10 ms are also merged and counted here.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | {question} | development |
+
+No attributes.
+
+## `obi.stats.socket_traffic.close_drops`
+
+Socket traffic close events lost because their ring buffer was full. The row is kept and reported by a later read or the idle cleanup.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | {event} | development |
+
+No attributes.
+
+## `obi.stats.socket_traffic.drops`
+
+Socket send and receive calls whose traffic (`obi.stat.bytes`, `obi.stat.packets`) is not counted because the socket traffic kernel map was full.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | {update} | development |
+
+No attributes.
+
+## `obi.stats.socket_traffic.rows`
+
+Rows in the socket traffic kernel map after the last read: the open sockets with traffic.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| gauge | {row} | development |
+
+No attributes.
+
+## `obi.stats.socket_traffic.underflows`
+
+Socket traffic totals that went down, because a socket was replaced by another one with the same addresses. The increase is counted as 0.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | {update} | development |
+
+No attributes.
 
 ## `rpc.client.call.duration`
 

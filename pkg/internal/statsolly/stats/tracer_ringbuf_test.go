@@ -24,11 +24,14 @@ import (
 const traceLoopTestTimeout = time.Second
 
 const (
-	wireSizeTCPRtt                  = 44
-	wireSizeTCPFailedConnection     = 40
-	wireSizeTCPSuccessfulConnection = 40
-	wireSizeTCPRetransmit           = 40
-	wireSizeTCPIo                   = 80
+	wireSizeTCPRtt                  = 76
+	wireSizeTCPFailedConnection     = 72
+	wireSizeTCPSuccessfulConnection = 72
+	wireSizeTCPRetransmit           = 72
+	wireSizeTCPIo                   = 112
+	wireSizeTCPFlowControl          = 72
+	wireSizeTCPCongestion           = 84
+	wireSizeTCPClosedConnection     = 72
 
 	wireFlagsOffset          = 0
 	wireRttRoleOffset        = 1
@@ -39,11 +42,22 @@ const (
 	wireFailedConnOffset     = 4
 	wireSuccessfulRoleOffset = 1
 	wireSuccessfulConnOffset = 4
+	wireClosedRoleOffset     = 1
+	wireClosedConnOffset     = 4
+	wireRetransmitTypeOffset = 1
 	wireRetransmitConnOffset = 4
 	wireTCPIoDirectionOffset = 1
 	wireTCPIoCountOffset     = 2
 	wireTCPIoBytesOffset     = 4
 	wireTCPIoConnOffset      = 44
+	wireFlowControlEvtOffset = 1
+	wireFlowControlRole      = 2
+	wireFlowControlConn      = 4
+	wireCongestionRole       = 1
+	wireCongestionCEOffset   = 4
+	wireCongestionReordOff   = 8
+	wireCongestionOOOOffset  = 12
+	wireCongestionConn       = 16
 	wireConnSrcAddrOffset    = 0
 	wireConnDstAddrOffset    = 16
 	wireConnSrcPortOffset    = 32
@@ -56,6 +70,9 @@ func TestStatsEventWireSizes(t *testing.T) {
 	assert.Equal(t, uintptr(wireSizeTCPSuccessfulConnection), unsafe.Sizeof(ebpf.StatsTCPSuccessfulConnection{}))
 	assert.Equal(t, uintptr(wireSizeTCPRetransmit), unsafe.Sizeof(ebpf.StatsTCPRetransmit{}))
 	assert.Equal(t, uintptr(wireSizeTCPIo), unsafe.Sizeof(ebpf.StatsTCPIo{}))
+	assert.Equal(t, uintptr(wireSizeTCPFlowControl), unsafe.Sizeof(ebpf.StatsTCPFlowControl{}))
+	assert.Equal(t, uintptr(wireSizeTCPCongestion), unsafe.Sizeof(ebpf.StatsTCPCongestion{}))
+	assert.Equal(t, uintptr(wireSizeTCPClosedConnection), unsafe.Sizeof(ebpf.StatsTCPClosedConnection{}))
 }
 
 func TestParseStatDecodesEveryEventType(t *testing.T) {
@@ -97,17 +114,36 @@ func TestParseStatDecodesEveryEventType(t *testing.T) {
 	)
 	successfulRaw[wireSuccessfulRoleOffset] = uint8(ebpf.CodeRoleServer)
 	successfulRaw[2], successfulRaw[3] = 0xe1, 0xe2
+	closedRaw := newWireStat(
+		ebpf.StatTypeTCPClosedConnection,
+		wireSizeTCPClosedConnection,
+		wireClosedConnOffset,
+		ipv6Conn,
+	)
+	closedRaw[wireClosedRoleOffset] = uint8(ebpf.CodeRoleClient)
+	closedRaw[2], closedRaw[3] = 0xe3, 0xe4
 	retransmitRaw := newWireStat(
 		ebpf.StatTypeTCPRetransmit,
 		wireSizeTCPRetransmit,
 		wireRetransmitConnOffset,
 		oneZeroPortConn,
 	)
-	retransmitRaw[1], retransmitRaw[2], retransmitRaw[3] = 0xc1, 0xc2, 0xc3
+	retransmitRaw[wireRetransmitTypeOffset] = uint8(ebpf.CodeRetransmitTimeout)
+	retransmitRaw[2], retransmitRaw[3] = 0xc2, 0xc3
 	tcpIoRaw := newWireStat(ebpf.StatTypeTCPIo, wireSizeTCPIo, wireTCPIoConnOffset, ipv4Conn)
 	tcpIoRaw[wireTCPIoDirectionOffset] = uint8(ebpf.CodeDirectionTransmit)
 	tcpIoRaw[wireTCPIoCountOffset], tcpIoRaw[3] = 3, 0xd1
 	putWireBytes(tcpIoRaw, [ebpf.TCPIoBatchSize]uint32{100, 200, 300, 400})
+	flowControlRaw := newWireStat(ebpf.StatTypeTCPFlowControl, wireSizeTCPFlowControl, wireFlowControlConn, ipv4Conn)
+	flowControlRaw[wireFlowControlEvtOffset] = uint8(ebpf.CodeFlowControlEventZeroWindow)
+	flowControlRaw[wireFlowControlRole] = uint8(ebpf.CodeRoleClient)
+	flowControlRaw[3] = 0xf1
+	congestionRaw := newWireStat(ebpf.StatTypeTCPCongestion, wireSizeTCPCongestion, wireCongestionConn, ipv4Conn)
+	congestionRaw[wireCongestionRole] = uint8(ebpf.CodeRoleServer)
+	congestionRaw[2], congestionRaw[3] = 0xe1, 0xe2
+	binary.NativeEndian.PutUint32(congestionRaw[wireCongestionCEOffset:], 3)
+	binary.NativeEndian.PutUint32(congestionRaw[wireCongestionReordOff:], 5)
+	binary.NativeEndian.PutUint32(congestionRaw[wireCongestionOOOOffset:], 7)
 
 	tests := []struct {
 		name string
@@ -124,6 +160,7 @@ func TestParseStatDecodesEveryEventType(t *testing.T) {
 					Role:   uint8(ebpf.CodeRoleServer),
 				},
 				CommonAttrs: commonAttrs(ipv4Conn),
+				ServerPort:  43123, // the server reports its own port,
 			},
 		},
 		{
@@ -136,6 +173,7 @@ func TestParseStatDecodesEveryEventType(t *testing.T) {
 					Role:   uint8(ebpf.CodeRoleClient),
 				},
 				CommonAttrs: commonAttrs(ipv6Conn),
+				ServerPort:  8080, // the client reports the remote port,
 			},
 		},
 		{
@@ -147,15 +185,29 @@ func TestParseStatDecodesEveryEventType(t *testing.T) {
 					Role: uint8(ebpf.CodeRoleServer),
 				},
 				CommonAttrs: commonAttrs(ipv4Conn),
+				ServerPort:  43123,
+			},
+		},
+		{
+			name: "closed connection with IPv6 addresses",
+			raw:  closedRaw,
+			want: &ebpf.Stat{
+				Type: ebpf.StatTypeTCPClosedConnection,
+				TCPClosedConnection: &ebpf.TCPClosedConnection{
+					Role: uint8(ebpf.CodeRoleClient),
+				},
+				CommonAttrs: commonAttrs(ipv6Conn),
+				ServerPort:  8080,
 			},
 		},
 		{
 			name: "TCP retransmit with one zero port",
 			raw:  retransmitRaw,
 			want: &ebpf.Stat{
-				Type:          ebpf.StatTypeTCPRetransmit,
-				TCPRetransmit: true,
-				CommonAttrs:   commonAttrs(oneZeroPortConn),
+				Type:              ebpf.StatTypeTCPRetransmit,
+				TCPRetransmit:     true,
+				TCPRetransmitType: uint8(ebpf.CodeRetransmitTimeout),
+				CommonAttrs:       commonAttrs(oneZeroPortConn),
 			},
 		},
 		{
@@ -168,6 +220,34 @@ func TestParseStatDecodesEveryEventType(t *testing.T) {
 					Bytes:     600,
 				},
 				CommonAttrs: commonAttrs(ipv4Conn),
+			},
+		},
+		{
+			name: "TCP zero-window probe",
+			raw:  flowControlRaw,
+			want: &ebpf.Stat{
+				Type: ebpf.StatTypeTCPFlowControl,
+				TCPFlowControl: &ebpf.TCPFlowControl{
+					Event: uint8(ebpf.CodeFlowControlEventZeroWindow),
+					Role:  uint8(ebpf.CodeRoleClient),
+				},
+				CommonAttrs: commonAttrs(ipv4Conn),
+				ServerPort:  443,
+			},
+		},
+		{
+			name: "TCP congestion",
+			raw:  congestionRaw,
+			want: &ebpf.Stat{
+				Type: ebpf.StatTypeTCPCongestion,
+				TCPCongestion: &ebpf.TCPCongestion{
+					DeliveredCE: 3,
+					ReordSeen:   5,
+					RcvOOOPack:  7,
+					Role:        uint8(ebpf.CodeRoleServer),
+				},
+				CommonAttrs: commonAttrs(ipv4Conn),
+				ServerPort:  43123,
 			},
 		},
 	}
@@ -233,7 +313,7 @@ func TestParseTCPIoBoundsBatchCount(t *testing.T) {
 	bytesByCall := [ebpf.TCPIoBatchSize]uint32{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
 	tests := []struct {
 		count uint8
-		want  uint32
+		want  uint64
 	}{
 		{count: 0, want: 0},
 		{count: 1, want: 1},
@@ -260,7 +340,7 @@ func TestParseTCPIoBoundsBatchCount(t *testing.T) {
 }
 
 func TestNewRingBufTracerInitializesForwarder(t *testing.T) {
-	tracer := NewRingBufTracer(nil, nil)
+	tracer := NewRingBufTracer(nil, nil, nil)
 
 	assert.NotNil(t, tracer.forward)
 }
@@ -355,6 +435,9 @@ func minimalWireStats() []struct {
 		{"successful connection", newWireStat(ebpf.StatTypeTCPSuccessfulConnection, wireSizeTCPSuccessfulConnection, wireSuccessfulConnOffset, ebpf.Conn{})},
 		{"TCP retransmit", newWireStat(ebpf.StatTypeTCPRetransmit, wireSizeTCPRetransmit, wireRetransmitConnOffset, ebpf.Conn{})},
 		{"TCP I/O", newWireStat(ebpf.StatTypeTCPIo, wireSizeTCPIo, wireTCPIoConnOffset, ebpf.Conn{})},
+		{"TCP flow control", newWireStat(ebpf.StatTypeTCPFlowControl, wireSizeTCPFlowControl, wireFlowControlConn, ebpf.Conn{})},
+		{"TCP congestion", newWireStat(ebpf.StatTypeTCPCongestion, wireSizeTCPCongestion, wireCongestionConn, ebpf.Conn{})},
+		{"closed connection", newWireStat(ebpf.StatTypeTCPClosedConnection, wireSizeTCPClosedConnection, wireClosedConnOffset, ebpf.Conn{})},
 	}
 }
 
@@ -372,4 +455,19 @@ func putWireBytes(raw []byte, values [ebpf.TCPIoBatchSize]uint32) {
 	for i, value := range values {
 		binary.NativeEndian.PutUint32(raw[wireTCPIoBytesOffset+i*4:], value)
 	}
+}
+
+func TestParseStatDecodesTheSocketOwner(t *testing.T) {
+	conn := ebpf.Conn{S_addr: testIP("10.0.0.1"), D_addr: testIP("10.0.0.2"), S_port: 40000, D_port: 80}
+	raw := newWireStat(ebpf.StatTypeTCPRtt, wireSizeTCPRtt, wireRttConnOffset, conn)
+	owner := raw[wireSizeTCPRtt-int(unsafe.Sizeof(ebpf.StatsSockOwnerT{})):]
+	binary.NativeEndian.PutUint32(owner[0:], 4242)
+	binary.NativeEndian.PutUint32(owner[4:], 4026531840)
+	binary.NativeEndian.PutUint32(owner[8:], 0x5)
+	binary.NativeEndian.PutUint32(owner[12:], 0x1)
+	copy(owner[16:], "curl")
+
+	stat, _, err := parseStat(&ringbuf.Record{RawSample: raw})
+	require.NoError(t, err)
+	assert.Equal(t, ebpf.SockOwner{Pid: 4242, NetNS: 4026531840, ExecName: "curl", CgroupID: 1<<32 | 5}, stat.Owner)
 }

@@ -30,7 +30,7 @@ var v2NetworkMetricsFeatureMask = export.FeatureNetwork |
 	export.FeatureNetworkInterZone |
 	export.FeatureNetworkFlowPackets
 
-var v2StatsMetricsFeatureMask = export.FeatureStats
+var v2StatsMetricsFeatureMask = export.FeatureAnyStats
 
 // V2ToRuntime converts a config v2 extension shape into an OBI runtime
 // configuration.
@@ -1779,6 +1779,7 @@ func applyFullV2NetworkStats(cfg *obi.Config, stats schema.NetworkStats) {
 	cfg.Stats.CIDRs = cloneRuntimeCIDRDefinitions(cfg.Stats.CIDRs, stats.Selection.CIDRs)
 	cfg.Filters.Stats = attributeFilterMap(stats.Filters.Traces)
 	applyFullV2StatsEnrichment(cfg, stats.Enrichment)
+	applyV2StatsSocketTraffic(cfg, stats.SocketTraffic)
 	cfg.Stats.Print = stats.Diagnostics.PrintStats
 }
 
@@ -1801,8 +1802,29 @@ func applyPartialV2NetworkStats(cfg *obi.Config, stats schema.NetworkStats) {
 	if !zeroValue(stats.Enrichment) {
 		applyPartialV2StatsEnrichment(cfg, stats.Enrichment)
 	}
+	applyV2StatsSocketTraffic(cfg, stats.SocketTraffic)
 	if stats.Diagnostics.PrintStats {
 		cfg.Stats.Print = true
+	}
+}
+
+// applyV2StatsSocketTraffic only overrides the settings that are set: an omitted setting
+// keeps its default.
+func applyV2StatsSocketTraffic(cfg *obi.Config, socketTraffic schema.StatsSocketTraffic) {
+	if socketTraffic.Protocols != nil {
+		cfg.Stats.SocketTraffic.Protocols = slices.Clone(socketTraffic.Protocols)
+	}
+	if socketTraffic.ReadInterval != 0 {
+		cfg.Stats.SocketTraffic.ReadInterval = socketTraffic.ReadInterval.TimeDuration()
+	}
+	if socketTraffic.MaxEntries != 0 {
+		cfg.Stats.SocketTraffic.MaxEntries = socketTraffic.MaxEntries
+	}
+	if socketTraffic.ConnectionRollup {
+		cfg.Stats.SocketTraffic.ConnectionRollup = true
+	}
+	if socketTraffic.TCPMetrics {
+		cfg.Stats.SocketTraffic.TCPMetrics = true
 	}
 }
 
@@ -2336,6 +2358,7 @@ func applyV2MetricsEnablement(cfg *obi.Config, src *schema.Extension, complete b
 		cfg.Metrics.Features &^= v2NetworkMetricsFeatureMask
 		if networkMetricsEnabled {
 			cfg.Metrics.Features |= export.FeatureNetwork
+			cfg.Metrics.Features |= networkFeatureMask(src.Capture.Network.Capture.Features)
 		}
 	}
 	if statsConfigured {
@@ -2560,6 +2583,16 @@ func statsMetricsEnablement(stats schema.NetworkStats) (export.Features, bool) {
 	return 0, false
 }
 
+func networkFeatureMask(features []string) export.Features {
+	out := export.Features(0)
+	for _, feature := range features {
+		if feature == networkFeatureFlowPackets {
+			out |= export.FeatureNetworkFlowPackets
+		}
+	}
+	return out
+}
+
 func statsFeatureMask(features []string) export.Features {
 	out := export.Features(0)
 	for _, feature := range features {
@@ -2574,6 +2607,18 @@ func statsFeatureMask(features []string) export.Features {
 			out |= export.FeatureStatsTCPRetransmits
 		case statsFeatureTCPIo:
 			out |= export.FeatureStatsTCPIo
+		case statsFeatureTCPFlowControl:
+			out |= export.FeatureStatsTCPFlowControl
+		case statsFeatureTCPCongestion:
+			out |= export.FeatureStatsTCPCongestion
+		case statsFeatureTCPClosedConnections:
+			out |= export.FeatureStatsTCPClosedConnections
+		case statsFeatureDNSLookups:
+			out |= export.FeatureStatsDNSLookups
+		case statsFeatureSocketBytes:
+			out |= export.FeatureStatsSocketBytes
+		case statsFeatureSocketPackets:
+			out |= export.FeatureStatsSocketPackets
 		}
 	}
 	return out

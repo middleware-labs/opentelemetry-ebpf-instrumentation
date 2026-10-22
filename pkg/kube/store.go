@@ -434,6 +434,14 @@ func (s *Store) PodContainerByPIDNs(pidns uint32, hostPID app.PID) (*kube.Cached
 	return s.podContainerByInfo(pick)
 }
 
+// PodContainerByContainerID returns the pod metadata and the container name of a container ID,
+// for any process: unlike PodContainerByPIDNs, the process does not need to be registered.
+func (s *Store) PodContainerByContainerID(cid string) (*kube.CachedObjMeta, string) {
+	s.access.RLock()
+	defer s.access.RUnlock()
+	return s.podContainerByInfo(&container.Info{ContainerID: cid})
+}
+
 func (s *Store) podContainerByInfo(info *container.Info) (*kube.CachedObjMeta, string) {
 	om, ok := s.podsByContainer[info.ContainerID]
 	if !ok {

@@ -46,6 +46,147 @@ attributes:
       Role of the local endpoint in the TCP three-way handshake
       (`client` initiated the SYN, `server` was awaiting it).
 
+  # Mirrors `NetworkTCPHandshakeRoleType` in
+  # `pkg/internal/statsolly/ebpf/stat.go`, for the socket traffic metrics.
+  - key: network.connection.role
+    type:
+      members:
+        - id: client
+          value: client
+          stability: development
+        - id: server
+          value: server
+          stability: development
+        - id: unknown
+          value: unknown
+          stability: development
+    stability: development
+    brief: >
+      Side of the connection of the local socket. TCP takes it from the
+      handshake (`unknown` for connections established before OBI started),
+      UDP from the bound local ports: a socket bound to its local port is the
+      `server`.
+  # Mirrors Datadog's IntraHost.
+  - key: network.peer.same_host
+    type: boolean
+    stability: development
+    brief: >
+      Whether the remote socket is on this host: its address and port are the
+      local side of another socket traffic row (the network namespace is kept
+      for loopback addresses), or both addresses are the same or loopback.
+      Always `false` for the TCP stats read from the events.
+
+  # Process and container of each side of the socket traffic metrics: src is
+  # the local socket, dst the remote one when it is on the same host.
+  - key: src.process.executable.name
+    type: string
+    stability: development
+    brief: >
+      Base name of the executable of the process of the local socket. It is truncated to 16 bytes
+      for a process that ended before OBI looked it up.
+    examples: ["python3.12", "nginx"]
+  - key: src.container.name
+    type: string
+    stability: development
+    brief: >
+      Name of the container of the process of the local socket: the container name in its Kubernetes pod, or the Docker container name.
+    examples: ["orders"]
+  - key: src.container.image.name
+    type: string
+    stability: development
+    brief: >
+      Image name of the container of the process of the local socket (Docker only).
+    examples: ["myrepo/orders"]
+  - key: src.container.image.tag
+    type: string
+    stability: development
+    brief: >
+      Image tag of the container of the process of the local socket (Docker only).
+    examples: ["1.4"]
+  - key: src.container.id
+    type: string
+    stability: development
+    brief: >
+      Container ID of the process of the local socket, from its cgroup. High cardinality: for debugging.
+    examples: ["a3bf90e006b2e6b4f4bb1e8f8b8d1f1c4f2a9d3e2c1b0a9f8e7d6c5b4a392817"]
+  - key: dst.process.executable.name
+    type: string
+    stability: development
+    brief: >
+      Base name of the executable of the process of the remote (on the same host) socket. It is truncated to 16 bytes
+      for a process that ended before OBI looked it up.
+    examples: ["python3.12", "nginx"]
+  - key: dst.container.name
+    type: string
+    stability: development
+    brief: >
+      Name of the container of the process of the remote (on the same host) socket: the container name in its Kubernetes pod, or the Docker container name.
+    examples: ["orders"]
+  - key: dst.container.image.name
+    type: string
+    stability: development
+    brief: >
+      Image name of the container of the process of the remote (on the same host) socket (Docker only).
+    examples: ["myrepo/orders"]
+  - key: dst.container.image.tag
+    type: string
+    stability: development
+    brief: >
+      Image tag of the container of the process of the remote (on the same host) socket (Docker only).
+    examples: ["1.4"]
+  - key: dst.container.id
+    type: string
+    stability: development
+    brief: >
+      Container ID of the process of the remote (on the same host) socket, from its cgroup. High cardinality: for debugging.
+    examples: ["a3bf90e006b2e6b4f4bb1e8f8b8d1f1c4f2a9d3e2c1b0a9f8e7d6c5b4a392817"]
+
+  # Mirrors `NetworkTCPRetransmitType` in
+  # `pkg/internal/statsolly/ebpf/stat.go`. Derived from the socket's
+  # congestion state (`icsk_ca_state`) when the retransmission happens.
+  - key: network.tcp.retransmit.type
+    type:
+      members:
+        - id: timeout
+          value: timeout
+          stability: development
+        - id: fast
+          value: fast
+          stability: development
+        - id: other
+          value: other
+          stability: development
+    stability: development
+    brief: >
+      Cause of a TCP retransmission: `timeout` when the retransmission
+      timer expired, `fast` during fast recovery (duplicate ACKs or SACK),
+      `other` for anything else (e.g. tail loss probes).
+  # Mirrors `NetworkTCPFlowControlEventType` in
+  # `pkg/internal/statsolly/ebpf/stat.go`.
+  - key: network.tcp.flow_control.event
+    type:
+      members:
+        - id: zero_window
+          value: zero_window
+          stability: development
+        - id: unknown
+          value: unknown
+          stability: development
+    stability: development
+    brief: >
+      Kind of TCP flow-control event. `zero_window` is a zero-window
+      probe sent while the peer advertises a zero receive window.
+  # Set from the question of the stats DNS lookups, in
+  # `pkg/internal/statsolly/ebpf/stat_getters.go`. There is no semantic
+  # convention for the question type yet.
+  - key: dns.question.type
+    type: string
+    stability: development
+    brief: >
+      DNS record type of the question, as its name (`A`, `AAAA`, `SRV`...),
+      or as its number for the types without a name in OBI.
+    examples: ["A", "AAAA", "SRV"]
+
 attribute_groups:
   # `obi.ip` / `src.*` / `dst.*` are reused from `registry.obi.network` so we
   # don't duplicate the declarations here. Only the stats-specific `reason`
@@ -54,12 +195,15 @@ attribute_groups:
     visibility: public
     brief: >
       Attributes carried on OBI's per-connection TCP statistics. Emitted
-      when the `stats_tcp_rtt`, `stats_tcp_failed_connections` or
-      `stats_tcp_successful_connections` features are enabled (all rolled
-      into the umbrella `stats` feature). Like
+      when the `stats_tcp_rtt`, `stats_tcp_failed_connections`,
+      `stats_tcp_successful_connections`, `stats_tcp_closed_connections`,
+      `stats_tcp_flow_control`, `stats_tcp_congestion` or `stats_dns_lookups` features are enabled (all but `stats_dns_lookups` rolled into the umbrella `stats` feature). Like
       network-flow metrics, the per-data-point attribute set is configurable
       via `attributes.select`.
     stability: development
     attributes:
       - ref: reason
       - ref: network.tcp.handshake.role
+      - ref: network.tcp.retransmit.type
+      - ref: network.tcp.flow_control.event
+      - ref: dns.question.type

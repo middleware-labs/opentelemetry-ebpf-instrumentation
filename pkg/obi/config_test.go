@@ -1995,3 +1995,33 @@ func TestConfigValidateRoute53HostedZones(t *testing.T) {
 	cfg.TracePrinter = debug.TracePrinterText
 	require.NoError(t, cfg.Validate())
 }
+
+func TestConfig_StatsSocketTraffic(t *testing.T) {
+	cfg, err := LoadConfig(bytes.NewBufferString(""))
+	require.NoError(t, err)
+	require.True(t, cfg.Stats.SocketTraffic.TCP())
+	require.True(t, cfg.Stats.SocketTraffic.UDP())
+	require.Equal(t, 10*time.Second, cfg.Stats.SocketTraffic.ReadInterval)
+
+	t.Setenv("OTEL_EBPF_STATS_SOCKET_TRAFFIC_PROTOCOLS", "tcp")
+	cfg, err = LoadConfig(bytes.NewBufferString("stats:\n  socket_traffic:\n    read_interval: 30s\n"))
+	require.NoError(t, err)
+	require.True(t, cfg.Stats.SocketTraffic.TCP())
+	require.False(t, cfg.Stats.SocketTraffic.UDP())
+	require.Equal(t, 30*time.Second, cfg.Stats.SocketTraffic.ReadInterval)
+}
+
+func TestConfigValidate_StatsSocketTraffic(t *testing.T) {
+	for _, socketTraffic := range []string{
+		"protocols: [icmp]",
+		"protocols: []",
+		"read_interval: 0s",
+		"max_entries: 0",
+	} {
+		t.Run(socketTraffic, func(t *testing.T) {
+			cfg, err := LoadConfig(bytes.NewBufferString("trace_printer: text\nexecutable_path: foo\nstats:\n  socket_traffic:\n    " + socketTraffic + "\n"))
+			require.NoError(t, err)
+			require.ErrorContains(t, cfg.Validate(), "SocketTraffic")
+		})
+	}
+}

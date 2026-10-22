@@ -1941,6 +1941,17 @@
               "default": false,
               "description": "Enable network capture.\nIf omitted, false is used.\n"
             },
+            "features": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "flow_packets"
+                ]
+              },
+              "default": [],
+              "description": "Optional network flow metric families enabled in addition to flow bytes.\nIf omitted, no optional families are enabled.\n"
+            },
             "source": {
               "type": "string",
               "enum": [
@@ -2141,7 +2152,13 @@
                   "tcp_failed_connections",
                   "tcp_successful_connections",
                   "tcp_retransmits",
-                  "tcp_io"
+                  "tcp_io",
+                  "tcp_flow_control",
+                  "tcp_congestion",
+                  "tcp_closed_connections",
+                  "dns_lookups",
+                  "socket_bytes",
+                  "socket_packets"
                 ]
               },
               "default": [],
@@ -2188,6 +2205,45 @@
             },
             "enrichment": {
               "$ref": "#/$defs/NetworkEnrichment"
+            },
+            "socket_traffic": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "Controls of the socket_bytes and socket_packets stats families.",
+              "properties": {
+                "protocols": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "tcp",
+                      "udp"
+                    ]
+                  },
+                  "minItems": 1,
+                  "default": [
+                    "tcp",
+                    "udp"
+                  ],
+                  "description": "Protocols whose sockets are counted. Leaving udp out avoids the per-datagram UDP hooks."
+                },
+                "read_interval": {
+                  "type": "string",
+                  "default": "10s",
+                  "description": "How often the counters are read from the kernel. Keep it at or below the metrics export interval."
+                },
+                "max_entries": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "default": 65536,
+                  "description": "Open sockets with traffic that can be counted at once, scaled by the eBPF maps global scale factor."
+                },
+                "connection_rollup": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Merges the closed connections that only differ by the client's ephemeral port before they are exported, like Datadog's connection rollup. The rolled-up port is reported as 0."
+                }
+              }
             },
             "diagnostics": {
               "type": "object",

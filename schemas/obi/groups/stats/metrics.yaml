@@ -18,6 +18,10 @@ metrics:
         requirement_level: opt_in
       - ref: dst.port
         requirement_level: opt_in
+      - ref: server.port
+        requirement_level: opt_in
+      - ref: network.peer.same_host
+        requirement_level: opt_in
       - ref: src.name
         requirement_level: opt_in
       - ref: dst.name
@@ -25,6 +29,26 @@ metrics:
       - ref: src.zone
         requirement_level: opt_in
       - ref: dst.zone
+        requirement_level: opt_in
+      - ref: src.process.executable.name
+        requirement_level: opt_in
+      - ref: src.container.name
+        requirement_level: opt_in
+      - ref: src.container.image.name
+        requirement_level: opt_in
+      - ref: src.container.image.tag
+        requirement_level: opt_in
+      - ref: src.container.id
+        requirement_level: opt_in
+      - ref: dst.process.executable.name
+        requirement_level: opt_in
+      - ref: dst.container.name
+        requirement_level: opt_in
+      - ref: dst.container.image.name
+        requirement_level: opt_in
+      - ref: dst.container.image.tag
+        requirement_level: opt_in
+      - ref: dst.container.id
         requirement_level: opt_in
       - ref: k8s.cluster.name
         requirement_level:
@@ -92,6 +116,10 @@ metrics:
         requirement_level: opt_in
       - ref: dst.port
         requirement_level: opt_in
+      - ref: server.port
+        requirement_level: opt_in
+      - ref: network.peer.same_host
+        requirement_level: opt_in
       - ref: src.name
         requirement_level: opt_in
       - ref: dst.name
@@ -99,6 +127,28 @@ metrics:
       - ref: src.zone
         requirement_level: opt_in
       - ref: dst.zone
+        requirement_level: opt_in
+      - ref: network.tcp.retransmit.type
+        requirement_level: recommended
+      - ref: src.process.executable.name
+        requirement_level: opt_in
+      - ref: src.container.name
+        requirement_level: opt_in
+      - ref: src.container.image.name
+        requirement_level: opt_in
+      - ref: src.container.image.tag
+        requirement_level: opt_in
+      - ref: src.container.id
+        requirement_level: opt_in
+      - ref: dst.process.executable.name
+        requirement_level: opt_in
+      - ref: dst.container.name
+        requirement_level: opt_in
+      - ref: dst.container.image.name
+        requirement_level: opt_in
+      - ref: dst.container.image.tag
+        requirement_level: opt_in
+      - ref: dst.container.id
         requirement_level: opt_in
       - ref: k8s.cluster.name
         requirement_level:
@@ -165,6 +215,10 @@ metrics:
         requirement_level: opt_in
       - ref: dst.port
         requirement_level: opt_in
+      - ref: server.port
+        requirement_level: opt_in
+      - ref: network.peer.same_host
+        requirement_level: opt_in
       - ref: src.name
         requirement_level: opt_in
       - ref: dst.name
@@ -175,6 +229,26 @@ metrics:
         requirement_level: opt_in
       - ref: network.io.direction
         requirement_level: recommended
+      - ref: src.process.executable.name
+        requirement_level: opt_in
+      - ref: src.container.name
+        requirement_level: opt_in
+      - ref: src.container.image.name
+        requirement_level: opt_in
+      - ref: src.container.image.tag
+        requirement_level: opt_in
+      - ref: src.container.id
+        requirement_level: opt_in
+      - ref: dst.process.executable.name
+        requirement_level: opt_in
+      - ref: dst.container.name
+        requirement_level: opt_in
+      - ref: dst.container.image.name
+        requirement_level: opt_in
+      - ref: dst.container.image.tag
+        requirement_level: opt_in
+      - ref: dst.container.id
+        requirement_level: opt_in
       - ref: k8s.cluster.name
         requirement_level:
           recommended: if Kubernetes decoration is enabled
@@ -242,6 +316,8 @@ metrics:
         requirement_level: opt_in
       - ref: dst.port
         requirement_level: opt_in
+      - ref: server.port
+        requirement_level: opt_in
       - ref: src.name
         requirement_level: opt_in
       - ref: dst.name
@@ -253,6 +329,26 @@ metrics:
       - ref: reason
         requirement_level: opt_in
       - ref: network.tcp.handshake.role
+        requirement_level: opt_in
+      - ref: src.process.executable.name
+        requirement_level: opt_in
+      - ref: src.container.name
+        requirement_level: opt_in
+      - ref: src.container.image.name
+        requirement_level: opt_in
+      - ref: src.container.image.tag
+        requirement_level: opt_in
+      - ref: src.container.id
+        requirement_level: opt_in
+      - ref: dst.process.executable.name
+        requirement_level: opt_in
+      - ref: dst.container.name
+        requirement_level: opt_in
+      - ref: dst.container.image.name
+        requirement_level: opt_in
+      - ref: dst.container.image.tag
+        requirement_level: opt_in
+      - ref: dst.container.id
         requirement_level: opt_in
       - ref: k8s.cluster.name
         requirement_level:
@@ -319,6 +415,10 @@ metrics:
         requirement_level: opt_in
       - ref: dst.port
         requirement_level: opt_in
+      - ref: server.port
+        requirement_level: opt_in
+      - ref: network.peer.same_host
+        requirement_level: opt_in
       - ref: src.name
         requirement_level: opt_in
       - ref: dst.name
@@ -328,6 +428,26 @@ metrics:
       - ref: dst.zone
         requirement_level: opt_in
       - ref: network.tcp.handshake.role
+        requirement_level: opt_in
+      - ref: src.process.executable.name
+        requirement_level: opt_in
+      - ref: src.container.name
+        requirement_level: opt_in
+      - ref: src.container.image.name
+        requirement_level: opt_in
+      - ref: src.container.image.tag
+        requirement_level: opt_in
+      - ref: src.container.id
+        requirement_level: opt_in
+      - ref: dst.process.executable.name
+        requirement_level: opt_in
+      - ref: dst.container.name
+        requirement_level: opt_in
+      - ref: dst.container.image.name
+        requirement_level: opt_in
+      - ref: dst.container.image.tag
+        requirement_level: opt_in
+      - ref: dst.container.id
         requirement_level: opt_in
       - ref: k8s.cluster.name
         requirement_level:
@@ -374,3 +494,805 @@ metrics:
         requirement_level: opt_in
       - ref: service.peer.namespace
         requirement_level: opt_in
+
+  - name: obi.stat.tcp.closed.connections
+    instrument: counter
+    unit: "{connection}"
+    stability: development
+    requirement_level: recommended
+    brief: >
+      Count of TCP connections that reached the closed state, including
+      failed connection attempts, broken down by `network.tcp.handshake.role`.
+      Listening sockets are not counted.
+    attributes:
+      - ref: obi.ip
+        requirement_level: opt_in
+      - ref: src.address
+        requirement_level: recommended
+      - ref: dst.address
+        requirement_level: recommended
+      - ref: src.port
+        requirement_level: opt_in
+      - ref: dst.port
+        requirement_level: opt_in
+      - ref: server.port
+        requirement_level: opt_in
+      - ref: network.peer.same_host
+        requirement_level: opt_in
+      - ref: src.name
+        requirement_level: opt_in
+      - ref: dst.name
+        requirement_level: opt_in
+      - ref: src.zone
+        requirement_level: opt_in
+      - ref: dst.zone
+        requirement_level: opt_in
+      - ref: network.tcp.handshake.role
+        requirement_level: opt_in
+      - ref: src.process.executable.name
+        requirement_level: opt_in
+      - ref: src.container.name
+        requirement_level: opt_in
+      - ref: src.container.image.name
+        requirement_level: opt_in
+      - ref: src.container.image.tag
+        requirement_level: opt_in
+      - ref: src.container.id
+        requirement_level: opt_in
+      - ref: dst.process.executable.name
+        requirement_level: opt_in
+      - ref: dst.container.name
+        requirement_level: opt_in
+      - ref: dst.container.image.name
+        requirement_level: opt_in
+      - ref: dst.container.image.tag
+        requirement_level: opt_in
+      - ref: dst.container.id
+        requirement_level: opt_in
+      - ref: k8s.cluster.name
+        requirement_level:
+          recommended: if Kubernetes decoration is enabled
+      - ref: k8s.src.owner.name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.src.owner.type
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.src.namespace
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.src.name
+        requirement_level: opt_in
+      - ref: k8s.src.type
+        requirement_level: opt_in
+      - ref: k8s.src.node.ip
+        requirement_level: opt_in
+      - ref: k8s.src.node.name
+        requirement_level: opt_in
+      - ref: k8s.dst.owner.name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.dst.owner.type
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.dst.namespace
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.dst.name
+        requirement_level: opt_in
+      - ref: k8s.dst.type
+        requirement_level: opt_in
+      - ref: k8s.dst.node.ip
+        requirement_level: opt_in
+      - ref: k8s.dst.node.name
+        requirement_level: opt_in
+      - ref: service.name
+        requirement_level: opt_in
+      - ref: service.namespace
+        requirement_level: opt_in
+      - ref: service.peer.name
+        requirement_level: opt_in
+      - ref: service.peer.namespace
+        requirement_level: opt_in
+
+  - name: obi.stat.tcp.flow_control.events
+    instrument: counter
+    unit: "{event}"
+    stability: development
+    requirement_level: recommended
+    brief: >
+      Count of TCP flow-control events. For `zero_window`, one event is one
+      zero-window probe sent because the peer advertised a zero receive
+      window, so a longer stall produces more events. `src` is the blocked
+      sender, `dst` is the receiver that is not reading.
+    attributes:
+      - ref: obi.ip
+        requirement_level: opt_in
+      - ref: src.address
+        requirement_level: recommended
+      - ref: dst.address
+        requirement_level: recommended
+      - ref: src.port
+        requirement_level: opt_in
+      - ref: dst.port
+        requirement_level: opt_in
+      - ref: server.port
+        requirement_level: opt_in
+      - ref: network.peer.same_host
+        requirement_level: opt_in
+      - ref: src.name
+        requirement_level: opt_in
+      - ref: dst.name
+        requirement_level: opt_in
+      - ref: src.zone
+        requirement_level: opt_in
+      - ref: dst.zone
+        requirement_level: opt_in
+      - ref: network.tcp.flow_control.event
+        requirement_level: recommended
+      - ref: network.tcp.handshake.role
+        requirement_level: opt_in
+      - ref: src.process.executable.name
+        requirement_level: opt_in
+      - ref: src.container.name
+        requirement_level: opt_in
+      - ref: src.container.image.name
+        requirement_level: opt_in
+      - ref: src.container.image.tag
+        requirement_level: opt_in
+      - ref: src.container.id
+        requirement_level: opt_in
+      - ref: dst.process.executable.name
+        requirement_level: opt_in
+      - ref: dst.container.name
+        requirement_level: opt_in
+      - ref: dst.container.image.name
+        requirement_level: opt_in
+      - ref: dst.container.image.tag
+        requirement_level: opt_in
+      - ref: dst.container.id
+        requirement_level: opt_in
+      - ref: k8s.cluster.name
+        requirement_level:
+          recommended: if Kubernetes decoration is enabled
+      - ref: k8s.src.owner.name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.src.owner.type
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.src.namespace
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.src.name
+        requirement_level: opt_in
+      - ref: k8s.src.type
+        requirement_level: opt_in
+      - ref: k8s.src.node.ip
+        requirement_level: opt_in
+      - ref: k8s.src.node.name
+        requirement_level: opt_in
+      - ref: k8s.dst.owner.name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.dst.owner.type
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.dst.namespace
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.dst.name
+        requirement_level: opt_in
+      - ref: k8s.dst.type
+        requirement_level: opt_in
+      - ref: k8s.dst.node.ip
+        requirement_level: opt_in
+      - ref: k8s.dst.node.name
+        requirement_level: opt_in
+      - ref: service.name
+        requirement_level: opt_in
+      - ref: service.namespace
+        requirement_level: opt_in
+      - ref: service.peer.name
+        requirement_level: opt_in
+      - ref: service.peer.namespace
+        requirement_level: opt_in
+
+  - name: obi.stat.tcp.ecn.ce.packets
+    instrument: counter
+    unit: "{packet}"
+    stability: development
+    requirement_level: recommended
+    brief: >
+      Count of sent TCP packets that a router on the path marked as ECN
+      congestion experienced (CE) and the receiver echoed back. Read from the
+      kernel's per-socket `delivered_ce` counter at send, receive and close,
+      so it is non-zero only on connections that negotiated ECN. `src` is the
+      sender of the marked packets.
+    attributes:
+      - ref: obi.ip
+        requirement_level: opt_in
+      - ref: src.address
+        requirement_level: recommended
+      - ref: dst.address
+        requirement_level: recommended
+      - ref: src.port
+        requirement_level: opt_in
+      - ref: dst.port
+        requirement_level: opt_in
+      - ref: server.port
+        requirement_level: opt_in
+      - ref: network.peer.same_host
+        requirement_level: opt_in
+      - ref: src.name
+        requirement_level: opt_in
+      - ref: dst.name
+        requirement_level: opt_in
+      - ref: src.zone
+        requirement_level: opt_in
+      - ref: dst.zone
+        requirement_level: opt_in
+      - ref: network.tcp.handshake.role
+        requirement_level: opt_in
+      - ref: src.process.executable.name
+        requirement_level: opt_in
+      - ref: src.container.name
+        requirement_level: opt_in
+      - ref: src.container.image.name
+        requirement_level: opt_in
+      - ref: src.container.image.tag
+        requirement_level: opt_in
+      - ref: src.container.id
+        requirement_level: opt_in
+      - ref: dst.process.executable.name
+        requirement_level: opt_in
+      - ref: dst.container.name
+        requirement_level: opt_in
+      - ref: dst.container.image.name
+        requirement_level: opt_in
+      - ref: dst.container.image.tag
+        requirement_level: opt_in
+      - ref: dst.container.id
+        requirement_level: opt_in
+      - ref: k8s.cluster.name
+        requirement_level:
+          recommended: if Kubernetes decoration is enabled
+      - ref: k8s.src.owner.name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.src.owner.type
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.src.namespace
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.src.name
+        requirement_level: opt_in
+      - ref: k8s.src.type
+        requirement_level: opt_in
+      - ref: k8s.src.node.ip
+        requirement_level: opt_in
+      - ref: k8s.src.node.name
+        requirement_level: opt_in
+      - ref: k8s.dst.owner.name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.dst.owner.type
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.dst.namespace
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.dst.name
+        requirement_level: opt_in
+      - ref: k8s.dst.type
+        requirement_level: opt_in
+      - ref: k8s.dst.node.ip
+        requirement_level: opt_in
+      - ref: k8s.dst.node.name
+        requirement_level: opt_in
+      - ref: service.name
+        requirement_level: opt_in
+      - ref: service.namespace
+        requirement_level: opt_in
+      - ref: service.peer.name
+        requirement_level: opt_in
+      - ref: service.peer.namespace
+        requirement_level: opt_in
+
+  - name: obi.stat.tcp.reordering.events
+    instrument: counter
+    unit: "{event}"
+    stability: development
+    requirement_level: recommended
+    brief: >
+      Count of TCP data packet reordering events detected by the sender from
+      ACKs and SACKs. Read from the kernel's per-socket `reord_seen` counter
+      at send, receive and close. `src` is the sender of the reordered
+      packets.
+    attributes:
+      - ref: obi.ip
+        requirement_level: opt_in
+      - ref: src.address
+        requirement_level: recommended
+      - ref: dst.address
+        requirement_level: recommended
+      - ref: src.port
+        requirement_level: opt_in
+      - ref: dst.port
+        requirement_level: opt_in
+      - ref: server.port
+        requirement_level: opt_in
+      - ref: network.peer.same_host
+        requirement_level: opt_in
+      - ref: src.name
+        requirement_level: opt_in
+      - ref: dst.name
+        requirement_level: opt_in
+      - ref: src.zone
+        requirement_level: opt_in
+      - ref: dst.zone
+        requirement_level: opt_in
+      - ref: network.tcp.handshake.role
+        requirement_level: opt_in
+      - ref: src.process.executable.name
+        requirement_level: opt_in
+      - ref: src.container.name
+        requirement_level: opt_in
+      - ref: src.container.image.name
+        requirement_level: opt_in
+      - ref: src.container.image.tag
+        requirement_level: opt_in
+      - ref: src.container.id
+        requirement_level: opt_in
+      - ref: dst.process.executable.name
+        requirement_level: opt_in
+      - ref: dst.container.name
+        requirement_level: opt_in
+      - ref: dst.container.image.name
+        requirement_level: opt_in
+      - ref: dst.container.image.tag
+        requirement_level: opt_in
+      - ref: dst.container.id
+        requirement_level: opt_in
+      - ref: k8s.cluster.name
+        requirement_level:
+          recommended: if Kubernetes decoration is enabled
+      - ref: k8s.src.owner.name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.src.owner.type
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.src.namespace
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.src.name
+        requirement_level: opt_in
+      - ref: k8s.src.type
+        requirement_level: opt_in
+      - ref: k8s.src.node.ip
+        requirement_level: opt_in
+      - ref: k8s.src.node.name
+        requirement_level: opt_in
+      - ref: k8s.dst.owner.name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.dst.owner.type
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.dst.namespace
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.dst.name
+        requirement_level: opt_in
+      - ref: k8s.dst.type
+        requirement_level: opt_in
+      - ref: k8s.dst.node.ip
+        requirement_level: opt_in
+      - ref: k8s.dst.node.name
+        requirement_level: opt_in
+      - ref: service.name
+        requirement_level: opt_in
+      - ref: service.namespace
+        requirement_level: opt_in
+      - ref: service.peer.name
+        requirement_level: opt_in
+      - ref: service.peer.namespace
+        requirement_level: opt_in
+
+  - name: obi.stat.tcp.out_of_order.packets
+    instrument: counter
+    unit: "{packet}"
+    stability: development
+    requirement_level: recommended
+    brief: >
+      Count of TCP packets received out of order (with a gap before them).
+      Read from the kernel's per-socket `rcv_ooopack` counter at send, receive
+      and close. `src` is the receiver of the out-of-order packets.
+    attributes:
+      - ref: obi.ip
+        requirement_level: opt_in
+      - ref: src.address
+        requirement_level: recommended
+      - ref: dst.address
+        requirement_level: recommended
+      - ref: src.port
+        requirement_level: opt_in
+      - ref: dst.port
+        requirement_level: opt_in
+      - ref: server.port
+        requirement_level: opt_in
+      - ref: network.peer.same_host
+        requirement_level: opt_in
+      - ref: src.name
+        requirement_level: opt_in
+      - ref: dst.name
+        requirement_level: opt_in
+      - ref: src.zone
+        requirement_level: opt_in
+      - ref: dst.zone
+        requirement_level: opt_in
+      - ref: network.tcp.handshake.role
+        requirement_level: opt_in
+      - ref: src.process.executable.name
+        requirement_level: opt_in
+      - ref: src.container.name
+        requirement_level: opt_in
+      - ref: src.container.image.name
+        requirement_level: opt_in
+      - ref: src.container.image.tag
+        requirement_level: opt_in
+      - ref: src.container.id
+        requirement_level: opt_in
+      - ref: dst.process.executable.name
+        requirement_level: opt_in
+      - ref: dst.container.name
+        requirement_level: opt_in
+      - ref: dst.container.image.name
+        requirement_level: opt_in
+      - ref: dst.container.image.tag
+        requirement_level: opt_in
+      - ref: dst.container.id
+        requirement_level: opt_in
+      - ref: k8s.cluster.name
+        requirement_level:
+          recommended: if Kubernetes decoration is enabled
+      - ref: k8s.src.owner.name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.src.owner.type
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.src.namespace
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.src.name
+        requirement_level: opt_in
+      - ref: k8s.src.type
+        requirement_level: opt_in
+      - ref: k8s.src.node.ip
+        requirement_level: opt_in
+      - ref: k8s.src.node.name
+        requirement_level: opt_in
+      - ref: k8s.dst.owner.name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.dst.owner.type
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.dst.namespace
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.dst.name
+        requirement_level: opt_in
+      - ref: k8s.dst.type
+        requirement_level: opt_in
+      - ref: k8s.dst.node.ip
+        requirement_level: opt_in
+      - ref: k8s.dst.node.name
+        requirement_level: opt_in
+      - ref: service.name
+        requirement_level: opt_in
+      - ref: service.namespace
+        requirement_level: opt_in
+      - ref: service.peer.name
+        requirement_level: opt_in
+      - ref: service.peer.namespace
+        requirement_level: opt_in
+
+  - name: obi.stat.dns.lookup.duration
+    instrument: histogram
+    unit: "s"
+    stability: development
+    requirement_level: recommended
+    brief: >
+      Duration of the DNS lookups (UDP and TCP, port 53) of all the processes in
+      OBI's network namespace, from the first copy of the question to the
+      first copy of its answer. The source is the client and the destination
+      is the DNS server. Questions without answer after 5 seconds are recorded
+      with that duration and `error.type` `timeout`. Lookups to loopback DNS
+      servers are not counted.
+    attributes:
+      - ref: obi.ip
+        requirement_level: opt_in
+      - ref: src.address
+        requirement_level: recommended
+      - ref: dst.address
+        requirement_level: recommended
+      - ref: src.port
+        requirement_level: opt_in
+      - ref: dst.port
+        requirement_level: opt_in
+      - ref: src.name
+        requirement_level: opt_in
+      - ref: dst.name
+        requirement_level: opt_in
+      - ref: src.zone
+        requirement_level: opt_in
+      - ref: dst.zone
+        requirement_level: opt_in
+      - ref: error.type
+        requirement_level:
+          conditionally_required: if the lookup ended in an error or a timeout
+      - ref: dns.question.name
+        requirement_level: opt_in
+      - ref: dns.question.type
+        requirement_level: opt_in
+      - ref: k8s.cluster.name
+        requirement_level:
+          recommended: if Kubernetes decoration is enabled
+      - ref: k8s.src.owner.name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.src.owner.type
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.src.namespace
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.src.name
+        requirement_level: opt_in
+      - ref: k8s.src.type
+        requirement_level: opt_in
+      - ref: k8s.src.node.ip
+        requirement_level: opt_in
+      - ref: k8s.src.node.name
+        requirement_level: opt_in
+      - ref: k8s.dst.owner.name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.dst.owner.type
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.dst.namespace
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.dst.name
+        requirement_level: opt_in
+      - ref: k8s.dst.type
+        requirement_level: opt_in
+      - ref: k8s.dst.node.ip
+        requirement_level: opt_in
+      - ref: k8s.dst.node.name
+        requirement_level: opt_in
+      - ref: service.name
+        requirement_level: opt_in
+      - ref: service.namespace
+        requirement_level: opt_in
+      - ref: service.peer.name
+        requirement_level: opt_in
+      - ref: service.peer.namespace
+        requirement_level: opt_in
+
+  - name: obi.stat.bytes
+    instrument: counter
+    unit: "By"
+    stability: development
+    requirement_level: recommended
+    brief: >
+      Payload bytes that the applications send and read on their TCP and UDP
+      sockets, counted per socket and read periodically from a kernel map.
+    attributes:
+      - ref: obi.ip
+        requirement_level: opt_in
+      - ref: src.address
+        requirement_level: recommended
+      - ref: dst.address
+        requirement_level: recommended
+      - ref: src.port
+        requirement_level: opt_in
+      - ref: dst.port
+        requirement_level: opt_in
+      - ref: server.port
+        requirement_level: opt_in
+      - ref: network.peer.same_host
+        requirement_level: opt_in
+      - ref: src.name
+        requirement_level: opt_in
+      - ref: dst.name
+        requirement_level: opt_in
+      - ref: src.zone
+        requirement_level: opt_in
+      - ref: dst.zone
+        requirement_level: opt_in
+      - ref: network.transport
+        requirement_level: recommended
+      - ref: network.io.direction
+        requirement_level: recommended
+      - ref: network.connection.role
+        requirement_level: opt_in
+      - ref: src.process.executable.name
+        requirement_level: opt_in
+      - ref: src.container.name
+        requirement_level: opt_in
+      - ref: src.container.image.name
+        requirement_level: opt_in
+      - ref: src.container.image.tag
+        requirement_level: opt_in
+      - ref: src.container.id
+        requirement_level: opt_in
+      - ref: dst.process.executable.name
+        requirement_level: opt_in
+      - ref: dst.container.name
+        requirement_level: opt_in
+      - ref: dst.container.image.name
+        requirement_level: opt_in
+      - ref: dst.container.image.tag
+        requirement_level: opt_in
+      - ref: dst.container.id
+        requirement_level: opt_in
+      - ref: k8s.cluster.name
+        requirement_level:
+          recommended: if Kubernetes decoration is enabled
+      - ref: k8s.src.owner.name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.src.owner.type
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.src.namespace
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.src.name
+        requirement_level: opt_in
+      - ref: k8s.src.type
+        requirement_level: opt_in
+      - ref: k8s.src.node.ip
+        requirement_level: opt_in
+      - ref: k8s.src.node.name
+        requirement_level: opt_in
+      - ref: k8s.dst.owner.name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.dst.owner.type
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.dst.namespace
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.dst.name
+        requirement_level: opt_in
+      - ref: k8s.dst.type
+        requirement_level: opt_in
+      - ref: k8s.dst.node.ip
+        requirement_level: opt_in
+      - ref: k8s.dst.node.name
+        requirement_level: opt_in
+      - ref: service.name
+        requirement_level: opt_in
+      - ref: service.namespace
+        requirement_level: opt_in
+      - ref: service.peer.name
+        requirement_level: opt_in
+      - ref: service.peer.namespace
+        requirement_level: opt_in
+
+  # Counter has no explicit OTLP unit set; mirror that here so live-check
+  # doesn't complain "Unit should be '1', but found ''".
+
+  - name: obi.stat.packets
+    instrument: counter
+    unit: "{packet}"
+    stability: development
+    requirement_level: recommended
+    brief: >
+      TCP segments and UDP datagrams sent and received by the applications'
+      sockets, counted per socket and read periodically from a kernel map.
+    attributes:
+      - ref: obi.ip
+        requirement_level: opt_in
+      - ref: src.address
+        requirement_level: recommended
+      - ref: dst.address
+        requirement_level: recommended
+      - ref: src.port
+        requirement_level: opt_in
+      - ref: dst.port
+        requirement_level: opt_in
+      - ref: server.port
+        requirement_level: opt_in
+      - ref: network.peer.same_host
+        requirement_level: opt_in
+      - ref: src.name
+        requirement_level: opt_in
+      - ref: dst.name
+        requirement_level: opt_in
+      - ref: src.zone
+        requirement_level: opt_in
+      - ref: dst.zone
+        requirement_level: opt_in
+      - ref: network.transport
+        requirement_level: recommended
+      - ref: network.io.direction
+        requirement_level: recommended
+      - ref: network.connection.role
+        requirement_level: opt_in
+      - ref: src.process.executable.name
+        requirement_level: opt_in
+      - ref: src.container.name
+        requirement_level: opt_in
+      - ref: src.container.image.name
+        requirement_level: opt_in
+      - ref: src.container.image.tag
+        requirement_level: opt_in
+      - ref: src.container.id
+        requirement_level: opt_in
+      - ref: dst.process.executable.name
+        requirement_level: opt_in
+      - ref: dst.container.name
+        requirement_level: opt_in
+      - ref: dst.container.image.name
+        requirement_level: opt_in
+      - ref: dst.container.image.tag
+        requirement_level: opt_in
+      - ref: dst.container.id
+        requirement_level: opt_in
+      - ref: k8s.cluster.name
+        requirement_level:
+          recommended: if Kubernetes decoration is enabled
+      - ref: k8s.src.owner.name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.src.owner.type
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.src.namespace
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.src.name
+        requirement_level: opt_in
+      - ref: k8s.src.type
+        requirement_level: opt_in
+      - ref: k8s.src.node.ip
+        requirement_level: opt_in
+      - ref: k8s.src.node.name
+        requirement_level: opt_in
+      - ref: k8s.dst.owner.name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.dst.owner.type
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.dst.namespace
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.dst.name
+        requirement_level: opt_in
+      - ref: k8s.dst.type
+        requirement_level: opt_in
+      - ref: k8s.dst.node.ip
+        requirement_level: opt_in
+      - ref: k8s.dst.node.name
+        requirement_level: opt_in
+      - ref: service.name
+        requirement_level: opt_in
+      - ref: service.namespace
+        requirement_level: opt_in
+      - ref: service.peer.name
+        requirement_level: opt_in
+      - ref: service.peer.namespace
+        requirement_level: opt_in
+
+  # Counter has no explicit OTLP unit set; mirror that here so live-check
+  # doesn't complain "Unit should be '1', but found ''".

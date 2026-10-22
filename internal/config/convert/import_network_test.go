@@ -21,9 +21,14 @@ func TestV2ToRuntimeNetworkCaptureAndStatsRoundTrip(t *testing.T) {
 
 	cfg := obi.DefaultConfig
 	cfg.Metrics.Features = export.FeatureNetwork |
+		export.FeatureNetworkFlowPackets |
 		export.FeatureStatsTCPFailedConnections |
 		export.FeatureStatsTCPIo |
-		export.FeatureStatsTCPSuccessfulConnections
+		export.FeatureStatsTCPSuccessfulConnections |
+		export.FeatureStatsTCPFlowControl |
+		export.FeatureStatsTCPCongestion |
+		export.FeatureStatsTCPClosedConnections |
+		export.FeatureStatsDNSLookups
 
 	cfg.NetworkFlows.Enable = true
 	cfg.NetworkFlows.Source = obi.EbpfSourceTC
@@ -102,7 +107,7 @@ func TestV2ToRuntimeNetworkCaptureAndStatsRoundTrip(t *testing.T) {
 	require.Equal(t, 83, got.Stats.ReverseDNS.CacheLen)
 	require.Equal(t, 84*time.Second, got.Stats.ReverseDNS.CacheTTL)
 	require.True(t, got.Stats.Print)
-	require.Equal(t, export.FeatureNetwork|export.FeatureStatsTCPFailedConnections|export.FeatureStatsTCPIo|export.FeatureStatsTCPSuccessfulConnections, got.Metrics.Features)
+	require.Equal(t, export.FeatureNetwork|export.FeatureNetworkFlowPackets|export.FeatureStatsTCPFailedConnections|export.FeatureStatsTCPIo|export.FeatureStatsTCPSuccessfulConnections|export.FeatureStatsTCPFlowControl|export.FeatureStatsTCPCongestion|export.FeatureStatsTCPClosedConnections|export.FeatureStatsDNSLookups, got.Metrics.Features)
 }
 
 func TestV2ToRuntimePartialNetworkCapturePreservesMissingMetadataDefaults(t *testing.T) {
@@ -254,4 +259,47 @@ func TestV2ToRuntimeRejectsUnsupportedNetworkProperties(t *testing.T) {
 			require.ErrorContains(t, err, tc.path)
 		})
 	}
+}
+
+func TestV2StatsEnablementKeepsDNSLookupsOptIn(t *testing.T) {
+	features, ok := statsMetricsEnablement(schema.NetworkStats{Enabled: true})
+	require.True(t, ok)
+	require.Equal(t, export.FeatureStats, features)
+	require.False(t, features.StatsDNSLookups())
+
+	features, ok = statsMetricsEnablement(schema.NetworkStats{Enabled: true, Features: []string{"dns_lookups"}})
+	require.True(t, ok)
+	require.Equal(t, export.FeatureStatsDNSLookups, features)
+}
+
+func TestV2StatsEnablementKeepsSocketTrafficOptIn(t *testing.T) {
+	features, ok := statsMetricsEnablement(schema.NetworkStats{Enabled: true})
+	require.True(t, ok)
+	require.False(t, features.StatsSocketTraffic())
+
+	features, ok = statsMetricsEnablement(schema.NetworkStats{Enabled: true, Features: []string{"socket_bytes", "socket_packets"}})
+	require.True(t, ok)
+	require.Equal(t, export.FeatureStatsSocketBytes|export.FeatureStatsSocketPackets, features)
+}
+
+func TestV2StatsSocketTrafficKeepsOmittedDefaults(t *testing.T) {
+	cfg := obi.DefaultConfig
+	applyV2StatsSocketTraffic(&cfg, schema.StatsSocketTraffic{Protocols: []string{"tcp"}})
+	require.Equal(t, []string{"tcp"}, cfg.Stats.SocketTraffic.Protocols)
+	require.Equal(t, obi.DefaultConfig.Stats.SocketTraffic.ReadInterval, cfg.Stats.SocketTraffic.ReadInterval)
+	require.Equal(t, obi.DefaultConfig.Stats.SocketTraffic.MaxEntries, cfg.Stats.SocketTraffic.MaxEntries)
+	require.False(t, cfg.Stats.SocketTraffic.ConnectionRollup)
+	require.False(t, cfg.Stats.SocketTraffic.TCPMetrics)
+
+	applyV2StatsSocketTraffic(&cfg, schema.StatsSocketTraffic{
+		ReadInterval:     schema.Duration(30 * time.Second),
+		MaxEntries:       1 << 18,
+		ConnectionRollup: true,
+		TCPMetrics:       true,
+	})
+	require.Equal(t, []string{"tcp"}, cfg.Stats.SocketTraffic.Protocols)
+	require.Equal(t, 30*time.Second, cfg.Stats.SocketTraffic.ReadInterval)
+	require.Equal(t, uint32(1<<18), cfg.Stats.SocketTraffic.MaxEntries)
+	require.True(t, cfg.Stats.SocketTraffic.ConnectionRollup)
+	require.True(t, cfg.Stats.SocketTraffic.TCPMetrics)
 }

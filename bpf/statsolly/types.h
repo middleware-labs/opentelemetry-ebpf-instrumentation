@@ -14,6 +14,12 @@ enum stat_type : u8 {
     k_stat_type_tcp_retransmit = 3,
     k_stat_type_tcp_io = 4,
     k_stat_type_tcp_successful_connection = 5,
+    k_stat_type_tcp_flow_control = 6,
+    k_stat_type_tcp_congestion = 7,
+    k_stat_type_tcp_closed_connection = 8,
+    k_stat_type_dns_packet = 9,
+    // not a ring buffer event: user space reads these stats from the socket_traffic map
+    k_stat_type_socket_traffic = 10,
 };
 
 // batch size used in tcp io metric
@@ -35,6 +41,16 @@ enum tcp_fail_reason : u8 {
     reason_host_unreachable = 4,
     reason_net_unreachable = 5,
     reason_other = 255,
+};
+
+enum tcp_retransmit_type : u8 {
+    retransmit_type_other = 0,
+    retransmit_type_fast = 1,
+    retransmit_type_timeout = 2,
+};
+
+enum tcp_flow_control_event : u8 {
+    flow_control_event_zero_window = 1,
 };
 
 enum network_io_direction : u8 {

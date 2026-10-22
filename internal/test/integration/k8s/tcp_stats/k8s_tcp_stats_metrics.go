@@ -64,6 +64,7 @@ func FeatureTCPStats() features.Feature {
 		Assess("emits tcp rtt as a histogram", testTCPStatsRTT).
 		Assess("emits tcp failed connections", testTCPStatsFailedConnections).
 		Assess("emits tcp successful connections", testTCPStatsSuccessfulConnections).
+		Assess("emits tcp closed connections", testTCPStatsClosedConnections).
 		Feature()
 }
 
@@ -145,6 +146,31 @@ func testTCPStatsSuccessfulConnections(ctx context.Context, t *testing.T, _ *env
 		}
 
 		serverResults, err := pq.Query(`obi_stat_tcp_successful_connections_total{` +
+			`k8s_cluster_name="my-kube",` +
+			`k8s_src_name=~"testserver.*",` +
+			`k8s_dst_name="` + pingerPodName + `",` +
+			`network_tcp_handshake_role="server"` +
+			`} > 0`)
+		assert.NoError(ct, err)
+		assert.NotEmpty(ct, serverResults)
+	}, testTimeout, pollInterval)
+	return ctx
+}
+
+// testTCPStatsClosedConnections asserts both sides of the pinger -> testserver
+// connections, which the pinger closes after each request.
+func testTCPStatsClosedConnections(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		clientResults, err := pq.Query(pingerFlow("obi_stat_tcp_closed_connections_total") + ` > 0`)
+		assert.NoError(ct, err)
+		assert.NotEmpty(ct, clientResults)
+		assertPingerFlowDecoration(ct, clientResults)
+		for _, res := range clientResults {
+			assert.Equal(ct, "client", res.Metric["network_tcp_handshake_role"])
+		}
+
+		serverResults, err := pq.Query(`obi_stat_tcp_closed_connections_total{` +
 			`k8s_cluster_name="my-kube",` +
 			`k8s_src_name=~"testserver.*",` +
 			`k8s_dst_name="` + pingerPodName + `",` +

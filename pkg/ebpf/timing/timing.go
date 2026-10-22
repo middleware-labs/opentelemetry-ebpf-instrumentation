@@ -24,3 +24,11 @@ func MonoTimeNow() time.Duration {
 	}
 	return time.Duration(ts.Nano())
 }
+
+// MonoClock returns a function with the same values as MonoTimeNow, for hot loops: it reads
+// CLOCK_MONOTONIC with a system call only once, then adds Go's monotonic clock, which reads the
+// same clock through the vDSO, without a system call.
+func MonoClock() func() time.Duration {
+	base, start := MonoTimeNow(), time.Now()
+	return func() time.Duration { return base + time.Since(start) }
+}

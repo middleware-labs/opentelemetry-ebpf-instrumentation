@@ -18,10 +18,14 @@ struct {
 // When 0, every submission wakes up userspace immediately.
 volatile const u32 stats_wakeup_data_bytes;
 
-static __always_inline long stats_events_flags() {
+static __always_inline long stats_ringbuf_flags(void *const ringbuf) {
     if (!stats_wakeup_data_bytes) {
         return 0;
     }
-    const u64 avail_data = bpf_ringbuf_query(&stats_events, BPF_RB_AVAIL_DATA);
+    const u64 avail_data = bpf_ringbuf_query(ringbuf, BPF_RB_AVAIL_DATA);
     return avail_data >= stats_wakeup_data_bytes ? BPF_RB_FORCE_WAKEUP : BPF_RB_NO_WAKEUP;
+}
+
+static __always_inline long stats_events_flags() {
+    return stats_ringbuf_flags(&stats_events);
 }

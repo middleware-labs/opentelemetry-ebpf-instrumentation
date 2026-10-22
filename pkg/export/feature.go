@@ -32,6 +32,18 @@ const (
 	FeatureStatsTCPSuccessfulConnections
 	FeatureStatsTCPRetransmits
 	FeatureStatsTCPIo
+	FeatureStatsTCPFlowControl
+	FeatureStatsTCPCongestion
+	FeatureStatsTCPClosedConnections
+	// FeatureStatsDNSLookups attaches a socket filter that runs for every packet of OBI's
+	// network namespace, to match the DNS questions and answers of all the processes.
+	// It is not part of FeatureStats: it must be enabled explicitly.
+	FeatureStatsDNSLookups
+	// FeatureStatsSocketBytes and FeatureStatsSocketPackets count the bytes and packets at every
+	// TCP send/receive call and, optionally, every UDP datagram.
+	// They are not part of FeatureStats: they must be enabled explicitly.
+	FeatureStatsSocketBytes
+	FeatureStatsSocketPackets
 	FeatureNetworkInterZone
 	FeatureApplicationRED
 	// FeatureApplicationSizes emits the HTTP request and response body size histograms.
@@ -63,7 +75,15 @@ const (
 // Note: FeatureStatsTCPIo fires on every tcp_sendmsg and tcp_cleanup_rbuf call — significantly
 // higher event volume than the other stat metrics (which fire on close, failure, or retransmit).
 // If overhead is a concern, enable the lower-frequency metrics individually and opt into stats_tcp_io explicitly.
-const FeatureStats = FeatureStatsTCPRtt | FeatureStatsTCPFailedConnections | FeatureStatsTCPRetransmits | FeatureStatsTCPIo | FeatureStatsTCPSuccessfulConnections
+// FeatureStatsDNSLookups is left out: its socket filter adds a cost to every packet of the host, not only to TCP events.
+const FeatureStats = FeatureStatsTCPRtt | FeatureStatsTCPFailedConnections | FeatureStatsTCPRetransmits | FeatureStatsTCPIo | FeatureStatsTCPSuccessfulConnections | FeatureStatsTCPFlowControl | FeatureStatsTCPCongestion |
+	FeatureStatsTCPClosedConnections
+
+// FeatureStatsSocketTraffic groups the features read from the socket traffic map.
+const FeatureStatsSocketTraffic = FeatureStatsSocketBytes | FeatureStatsSocketPackets
+
+// FeatureAnyStats are all the features of the stats pipeline, including the ones that are not in FeatureStats.
+const FeatureAnyStats = FeatureStats | FeatureStatsDNSLookups | FeatureStatsSocketTraffic
 
 // FeatureMapper stays public so any extension package can add and remove feature
 // definitions before loading them.
@@ -74,6 +94,12 @@ var FeatureMapper = map[string]Features{
 	"stats_tcp_retransmits":            FeatureStatsTCPRetransmits,
 	"stats_tcp_io":                     FeatureStatsTCPIo,
 	"stats_tcp_successful_connections": FeatureStatsTCPSuccessfulConnections,
+	"stats_tcp_flow_control":           FeatureStatsTCPFlowControl,
+	"stats_tcp_congestion":             FeatureStatsTCPCongestion,
+	"stats_tcp_closed_connections":     FeatureStatsTCPClosedConnections,
+	"stats_dns_lookups":                FeatureStatsDNSLookups,
+	"stats_socket_bytes":               FeatureStatsSocketBytes,
+	"stats_socket_packets":             FeatureStatsSocketPackets,
 	"network":                          FeatureNetwork,
 	"network_inter_zone":               FeatureNetworkInterZone,
 	"network_flow_packets":             FeatureNetworkFlowPackets,
@@ -375,7 +401,7 @@ func (f Features) NetworkFlowPackets() bool {
 }
 
 func (f Features) StatMetrics() bool {
-	return f.any(FeatureStats)
+	return f.any(FeatureAnyStats)
 }
 
 func (f Features) StatsTCPRtt() bool {
@@ -390,12 +416,41 @@ func (f Features) StatsTCPSuccessfulConnections() bool {
 	return f.any(FeatureStatsTCPSuccessfulConnections)
 }
 
+func (f Features) StatsTCPClosedConnections() bool {
+	return f.any(FeatureStatsTCPClosedConnections)
+}
+
+func (f Features) StatsDNSLookups() bool {
+	return f.any(FeatureStatsDNSLookups)
+}
+
+func (f Features) StatsSocketBytes() bool {
+	return f.any(FeatureStatsSocketBytes)
+}
+
+func (f Features) StatsSocketPackets() bool {
+	return f.any(FeatureStatsSocketPackets)
+}
+
+// StatsSocketTraffic reports whether any metric of the socket traffic map is enabled.
+func (f Features) StatsSocketTraffic() bool {
+	return f.any(FeatureStatsSocketTraffic)
+}
+
 func (f Features) StatsTCPRetransmits() bool {
 	return f.any(FeatureStatsTCPRetransmits)
 }
 
 func (f Features) StatsTCPIo() bool {
 	return f.any(FeatureStatsTCPIo)
+}
+
+func (f Features) StatsTCPFlowControl() bool {
+	return f.any(FeatureStatsTCPFlowControl)
+}
+
+func (f Features) StatsTCPCongestion() bool {
+	return f.any(FeatureStatsTCPCongestion)
 }
 
 func (f Features) NetworkInterZone() bool {

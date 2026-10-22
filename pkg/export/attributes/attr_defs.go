@@ -119,6 +119,7 @@ func getDefinitions(
 			attr.DstAddress: true,
 			attr.SrcPort:    false,
 			attr.DstPort:    false,
+			attr.ServerPort: false,
 			attr.SrcName:    false,
 			attr.DstName:    false,
 			attr.SrcZone:    false,
@@ -183,6 +184,26 @@ func getDefinitions(
 			attr.ServicePeerNamespace: false,
 		},
 		extraGroupAttributes[GroupStatsKube],
+	)
+
+	// the process and container of each side of a socket, for the metrics of the stats tracer
+	// that know the process of their socket
+	statsProcessAttributes := NewAttrReportGroup(
+		false,
+		nil,
+		map[attr.Name]Default{
+			attr.SrcProcessExecutableName: false,
+			attr.DstProcessExecutableName: false,
+			attr.SrcContainerName:         false,
+			attr.DstContainerName:         false,
+			attr.SrcContainerImageName:    false,
+			attr.DstContainerImageName:    false,
+			attr.SrcContainerImageTag:     false,
+			attr.DstContainerImageTag:     false,
+			attr.SrcContainerID:           false,
+			attr.DstContainerID:           false,
+		},
+		nil,
 	)
 	// network CIDR attributes are only enabled if the CIDRs configuration
 	// is defined
@@ -896,32 +917,100 @@ func getDefinitions(
 			Attributes: map[attr.Name]Default{},
 		},
 		StatTCPRtt.Section: {
-			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes},
 			Attributes: map[attr.Name]Default{
 				attr.NetworkTCPHandshakeRole: false,
+				attr.NetworkPeerSameHost:     false,
 			},
 		},
 		StatTCPFailedConnections.Section: {
-			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes},
 			Attributes: map[attr.Name]Default{
 				attr.TCPFailedConnectionReason: false,
 				attr.NetworkTCPHandshakeRole:   false,
 			},
 		},
 		StatTCPRetransmits.Section: {
-			SubGroups:  []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},
-			Attributes: map[attr.Name]Default{},
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.NetworkTCPRetransmitType: true,
+				attr.NetworkPeerSameHost:      false,
+			},
 		},
 		StatTCPIo.Section: {
-			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes},
 			Attributes: map[attr.Name]Default{
-				attr.NetworkIoDirection: true,
+				attr.NetworkIoDirection:  true,
+				attr.NetworkPeerSameHost: false,
 			},
 		},
 		StatTCPSuccessfulConnections.Section: {
-			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes},
 			Attributes: map[attr.Name]Default{
 				attr.NetworkTCPHandshakeRole: false,
+				attr.NetworkPeerSameHost:     false,
+			},
+		},
+		StatTCPClosedConnections.Section: {
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.NetworkTCPHandshakeRole: false,
+				attr.NetworkPeerSameHost:     false,
+			},
+		},
+		StatTCPFlowControlEvents.Section: {
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.NetworkTCPFlowControlEvent: true,
+				attr.NetworkTCPHandshakeRole:    false,
+				attr.NetworkPeerSameHost:        false,
+			},
+		},
+		StatTCPECNCEPackets.Section: {
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.NetworkTCPHandshakeRole: false,
+				attr.NetworkPeerSameHost:     false,
+			},
+		},
+		StatTCPReorderingEvents.Section: {
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.NetworkTCPHandshakeRole: false,
+				attr.NetworkPeerSameHost:     false,
+			},
+		},
+		StatTCPOutOfOrderPackets.Section: {
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.NetworkTCPHandshakeRole: false,
+				attr.NetworkPeerSameHost:     false,
+			},
+		},
+		StatSocketBytes.Section: {
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.NetworkTransport:      true,
+				attr.NetworkIoDirection:    true,
+				attr.NetworkConnectionRole: false,
+				attr.NetworkPeerSameHost:   false,
+			},
+		},
+		StatSocketPackets.Section: {
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.NetworkTransport:      true,
+				attr.NetworkIoDirection:    true,
+				attr.NetworkConnectionRole: false,
+				attr.NetworkPeerSameHost:   false,
+			},
+		},
+		StatDNSLookupDuration.Section: {
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.ErrorType:       true,
+				attr.DNSQuestionName: false,
+				attr.DNSQuestionType: false,
 			},
 		},
 

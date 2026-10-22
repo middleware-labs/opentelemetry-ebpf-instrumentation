@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	mobycontainer "github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/events"
 	"github.com/moby/moby/client"
 
@@ -48,6 +49,8 @@ type ContainerMeta struct {
 	FullID         ContainerID
 	Name           string
 	ComposeService string
+	// Image is the image the container was created from, e.g. "myrepo/orders:1.4"
+	Image string
 }
 
 // containerEntry groups container metadata with the PIDs known to belong to it.
@@ -133,6 +136,42 @@ func (s *ContainerStore) initialize(ctx context.Context) {
 	}
 }
 
+// ContainerInfoByID returns the ContainerMeta of a container ID, for the processes that ended
+// before their container was looked up. It is not cached: the caller caches it.
+func (s *ContainerStore) ContainerInfoByID(ctx context.Context, id string) (ContainerMeta, bool) {
+	if s.docker == nil {
+		return ContainerMeta{}, false
+	}
+	inspectResult, err := s.docker.ContainerInspect(ctx, id, client.ContainerInspectOptions{})
+	if err != nil {
+		s.log.Debug("failed to inspect docker container", "id", id, "error", err)
+		return ContainerMeta{}, false
+	}
+	return metaFromInspect(&inspectResult.Container), true
+}
+
+func metaFromInspect(inspectInfo *mobycontainer.InspectResponse) ContainerMeta {
+	containerID := inspectInfo.ID
+	if len(containerID) > abbreviationLength {
+		containerID = containerID[:abbreviationLength]
+	}
+
+	composeSvcName, image := "", ""
+	if inspectInfo.Config != nil {
+		composeSvcName = inspectInfo.Config.Labels[composeServiceLabelKey]
+		image = inspectInfo.Config.Image
+	}
+
+	return ContainerMeta{
+		// some containers start with '/'. Removing it
+		Name:           strings.Trim(inspectInfo.Name, "/"),
+		ID:             containerID,
+		FullID:         ContainerID(inspectInfo.ID),
+		ComposeService: composeSvcName,
+		Image:          image,
+	}
+}
+
 // ContainerInfo returns the ContainerMeta that is associated to the provided PID.
 // It also returns true if the ContainerMeta was found for the provided PID. False otherwise
 func (s *ContainerStore) ContainerInfo(ctx context.Context, pid app.PID) (ContainerMeta, bool) {
@@ -210,24 +249,7 @@ func (s *ContainerStore) ContainerInfo(ctx context.Context, pid app.PID) (Contai
 		return ContainerMeta{}, false
 	}
 
-	inspectInfo := inspectResult.Container
-	containerID := inspectInfo.ID
-	if len(containerID) > abbreviationLength {
-		containerID = containerID[:abbreviationLength]
-	}
-
-	composeSvcName := ""
-	if inspectInfo.Config != nil && len(inspectInfo.Config.Labels) > 0 {
-		composeSvcName = inspectInfo.Config.Labels[composeServiceLabelKey]
-	}
-
-	meta := ContainerMeta{
-		// some containers start with '/'. Removing it
-		Name:           strings.Trim(inspectInfo.Name, "/"),
-		ID:             containerID,
-		FullID:         ContainerID(inspectInfo.ID),
-		ComposeService: composeSvcName,
-	}
+	meta := metaFromInspect(&inspectResult.Container)
 
 	s.cacheMu.Lock()
 	// Re-validate that the PID still belongs to the inspected container: the process

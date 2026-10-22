@@ -562,10 +562,14 @@ This section is the primary user control for defining how OBI captures and proce
 
 The current shape separates packet/flow capture from TCP stats capture:
 
-- `capture.network.capture` controls network flow capture and flow-derived telemetry.
-- `capture.network.stats` controls TCP stats telemetry. `enabled` is the stats master switch, and `features` lists enabled stats families: `tcp_rtt`, `tcp_failed_connections`, `tcp_successful_connections`, `tcp_retransmits`, and `tcp_io`.
+- `capture.network.capture` controls network flow capture and flow-derived telemetry. `features` lists optional flow metric families enabled in addition to flow bytes: `flow_packets`.
+- `capture.network.stats` controls TCP stats telemetry. `enabled` is the stats master switch, and `features` lists enabled stats families: `tcp_rtt`, `tcp_failed_connections`, `tcp_successful_connections`, `tcp_retransmits`, `tcp_io`, `tcp_flow_control`, `tcp_congestion`, `tcp_closed_connections`, `dns_lookups`, `socket_bytes`, and `socket_packets`.
 
 `tcp_io` can produce substantially more events than the other stats families, so users should opt into it deliberately when they need per-send/per-receive I/O stats.
+
+`dns_lookups` attaches a socket filter that runs for every packet of OBI's network namespace, and reports the DNS lookups of all the processes in that namespace. Run OBI in the host network namespace to see the lookups of the whole host. Because it adds a cost to every packet, `enabled: true` alone does not turn it on: list `dns_lookups` in `features`.
+
+`socket_bytes` and `socket_packets` count the bytes and packets that the applications send and read on their TCP and UDP sockets, like Datadog CNM. They run at every TCP send and receive call and, with `udp` in `socket_traffic.protocols`, at every UDP datagram, so `enabled: true` alone does not turn them on: list them in `features`. `socket_traffic.read_interval` (default `10s`) is how often the counters are read from the kernel and should not be longer than the metrics export interval. `socket_traffic.max_entries` (default `65536`) is the number of open sockets with traffic that can be counted at once. `socket_traffic.connection_rollup` (default `false`) merges the closed connections that only differ by the client's ephemeral port before they are exported, like Datadog's connection rollup: many short connections then cost a few stats per read interval instead of one per connection, and the rolled-up port is reported as `0`. `socket_traffic.tcp_metrics` (default `false`) reads the `obi.stat.tcp.*` metrics from the TCP rows every `read_interval` and at close, like Datadog's connection stats, instead of one event per TCP event: their cost then grows with the connections, not with the events. The failed connections stay events. With it, the RTT is one sample per connection per read with activity and one at close, and the closed connections count only the established ones.
 
 ### `capture.metrics.features`
 

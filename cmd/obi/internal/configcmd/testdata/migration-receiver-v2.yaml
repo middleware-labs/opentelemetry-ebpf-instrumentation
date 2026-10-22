@@ -236,6 +236,7 @@ runtimes:
 network:
     capture:
         enabled: false
+        features: []
         source: socket_filter
         buffer_size: 0
         endpoint_identity:
@@ -310,6 +311,14 @@ network:
                 cache:
                     size: 256
                     ttl: 1h0m0s
+        socket_traffic:
+            protocols:
+                - tcp
+                - udp
+            read_interval: 10s
+            max_entries: 65536
+            connection_rollup: false
+            tcp_metrics: false
         diagnostics:
             print_stats: false
 metrics:

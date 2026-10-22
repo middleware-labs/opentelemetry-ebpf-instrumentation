@@ -20,8 +20,10 @@ func TestStat_GoStatMetrics(t *testing.T) {
 	t.Run("Go Stat Metrics TCP RTT tests", testStatMetricsTCPRttGo)
 	t.Run("Go Stat Metrics TCP Failed Connection tests", testStatMetricsTCPFailedConnectionsGo)
 	t.Run("Go Stat Metrics TCP Successful Connection tests", testStatMetricsTCPSuccessfulConnectionsGo)
+	t.Run("Go Stat Metrics TCP Closed Connection tests", testStatMetricsTCPClosedConnectionsGo)
 	t.Run("Go Stat Metrics TCP Retransmits tests", testStatMetricsTCPRetransmitsGo)
 	t.Run("Go Stat Metrics TCP IO tests", testStatMetricsTCPIoGo)
+	t.Run("Go Stat Metrics DNS Lookups tests", testStatMetricsDNSLookupsGo)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }

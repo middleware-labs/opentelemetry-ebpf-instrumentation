@@ -30,6 +30,19 @@ services:
       testserver:
         condition: service_started
 
+  # shares OBI's network namespace: the DNS socket filter only sees the packets of that namespace
+  testclient-dns:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/go-stat-metrics-client/Dockerfile
+    image: hatest-testclient-go-stat-metrics
+    network_mode: "service:obi"
+    environment:
+      - DNS_TARGET_ADDRESS=testserver:53
+    depends_on:
+      obi:
+        condition: service_started
+
   obi:
     build:
       context: ../../..
@@ -57,7 +70,7 @@ services:
       OTEL_EBPF_HOSTNAME: "obi"
       OTEL_EBPF_BPF_HTTP_REQUEST_TIMEOUT: "5s"
       OTEL_EBPF_PROCESSES_INTERVAL: "100ms"
-      OTEL_EBPF_METRICS_FEATURES: "stats"
+      OTEL_EBPF_METRICS_FEATURES: "stats,stats_dns_lookups"
       OTEL_EBPF_PROTOCOL_DEBUG_PRINT: "true"
       OTEL_EBPF_PROMETHEUS_PORT: "8999"
     depends_on:

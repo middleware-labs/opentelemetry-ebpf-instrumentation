@@ -1,0 +1,103 @@
+# OBI config v2 for a plain host (no Kubernetes), run as a container.
+# Same network flows, stats and attribute selection as obi-values-no-ports.yaml,
+# without the Kubernetes parts. Run it with --network host, see the command at the end of this file.
+file_format: "1.0"
+log_level: info
+
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      # network flows and stats only: no process is instrumented
+      policy:
+        default_action: exclude
+      rules: []
+      network:
+        capture:
+          enabled: true
+          features:
+            - flow_packets
+          enrichment:
+            reverse_dns:
+              mode: ebpf
+              cache:
+                size: 256
+                ttl: 1h
+        stats:
+          enabled: true
+          features:
+            - tcp_rtt
+            - tcp_failed_connections
+            - tcp_successful_connections
+            - tcp_retransmits
+            - tcp_io
+            - tcp_flow_control
+            - tcp_congestion
+            - tcp_closed_connections
+            - dns_lookups
+    enrich:
+      attributes:
+        select:
+          obi.network.flow.bytes:
+            include: [host.id, direction, transport, src.address, dst.address,
+                      src.name, dst.name, src.cidr, dst.cidr, obi.ip]
+          obi.network.flow.packets:
+            include: [host.id, direction, transport, src.address, dst.address,
+                      src.name, dst.name, src.cidr, dst.cidr, obi.ip]
+          obi.stat.tcp.rtt:
+            include: ["*"]
+            exclude: [src.port, dst.port]
+          obi.stat.tcp.retransmits:
+            include: ["*"]
+            exclude: [src.port, dst.port]
+          obi.stat.tcp.failed.connections:
+            include: ["*"]
+            exclude: [src.port, dst.port]
+          obi.stat.tcp.successful.connections:
+            include: ["*"]
+            exclude: [src.port, dst.port]
+          obi.stat.tcp.closed.connections:
+            include: ["*"]
+            exclude: [src.port, dst.port]
+          obi.stat.tcp.io:
+            include: ["*"]
+            exclude: [src.port, dst.port]
+          obi.stat.tcp.flow_control.events:
+            include: ["*"]
+            exclude: [src.port, dst.port]
+          obi.stat.tcp.ecn.ce.packets:
+            include: ["*"]
+            exclude: [src.port, dst.port]
+          obi.stat.tcp.reordering.events:
+            include: ["*"]
+            exclude: [src.port, dst.port]
+          obi.stat.tcp.out_of_order.packets:
+            include: ["*"]
+            exclude: [src.port, dst.port]
+          obi.stat.dns.lookup.duration:
+            include: ["*"]
+            exclude: [src.port, dst.port]
+      enrichers:
+        kubernetes:
+          mode: disabled
+
+meter_provider:
+  readers:
+    - periodic:
+        interval: 30000
+        exporter:
+          otlp_grpc:
+            # the Middleware agent on this host; change it if the agent runs elsewhere
+            endpoint: http://localhost:9319
+            tls:
+              insecure: true
+tracer_provider: null
+
+# Run (same container settings as the Helm chart: privileged, host network, cgroup and tracefs mounts):
+#   docker run -d --name obi --restart unless-stopped \
+#     --privileged --network host \
+#     -v /sys/fs/cgroup:/sys/fs/cgroup \
+#     -v /sys/kernel/tracing:/sys/kernel/tracing \
+#     -v "$PWD/obi-host.yaml:/etc/obi/obi-host.yaml:ro" \
+#     -e OTEL_EBPF_CONFIG_PATH=/etc/obi/obi-host.yaml \
+#     ghcr.io/middleware-labs/ruby-app:ntest3

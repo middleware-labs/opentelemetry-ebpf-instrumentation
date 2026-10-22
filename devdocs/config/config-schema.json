@@ -1067,7 +1067,13 @@
               "network_flow_packets",
               "network_inter_zone",
               "stats",
+              "stats_dns_lookups",
+              "stats_socket_bytes",
+              "stats_socket_packets",
+              "stats_tcp_closed_connections",
+              "stats_tcp_congestion",
               "stats_tcp_failed_connections",
+              "stats_tcp_flow_control",
               "stats_tcp_io",
               "stats_tcp_retransmits",
               "stats_tcp_rtt",
@@ -1305,7 +1311,7 @@
         "features": {
           "$ref": "#/$defs/Features",
           "description": "Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, stats, ... envDefault is provided to avoid breaking changes",
-          "default": 1536,
+          "default": 98304,
           "x-env-var": "OTEL_EBPF_METRICS_FEATURES"
         }
       },
@@ -3030,6 +3036,54 @@
       "type": "object",
       "description": "SensitiveQueryParamsConfig controls which query-parameter keys are redacted. The effective list is DefaultSensitiveQueryParams + Add - Remove. When both Add and Remove are empty, DefaultSensitiveQueryParams is used unchanged."
     },
+    "SocketTrafficConfig": {
+      "properties": {
+        "connection_rollup": {
+          "type": "boolean",
+          "description": "Merges the closed connections that only differ by the client's ephemeral port before they are exported, like Datadog's connection rollup. Many short connections then cost a few stats per read interval instead of one per connection. The rolled-up port is reported as 0.",
+          "default": false,
+          "x-env-var": "OTEL_EBPF_STATS_SOCKET_TRAFFIC_CONNECTION_ROLLUP"
+        },
+        "max_entries": {
+          "type": "integer",
+          "description": "Is the number of open sockets with traffic that can be counted at once. It is scaled by the eBPF maps global scale factor, like the other maps.",
+          "default": 65536,
+          "x-env-var": "OTEL_EBPF_STATS_SOCKET_TRAFFIC_MAX_ENTRIES"
+        },
+        "protocols": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "Whose sockets are counted. Accepted values: tcp, udp. The UDP hooks run once per datagram: leaving udp out avoids their cost on busy DNS servers.",
+          "default": [
+            "tcp",
+            "udp"
+          ],
+          "x-env-var": "OTEL_EBPF_STATS_SOCKET_TRAFFIC_PROTOCOLS"
+        },
+        "read_interval": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "description": "Is how often the counters are read from the kernel. It should not be longer than the metrics export interval.",
+          "default": "10s",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ],
+          "x-env-var": "OTEL_EBPF_STATS_SOCKET_TRAFFIC_READ_INTERVAL"
+        },
+        "tcp_metrics": {
+          "type": "boolean",
+          "description": "Reads the obi.stat.tcp.* metrics from the TCP rows, every read interval and at close, like Datadog's connection stats, instead of one event per TCP event. Their cost then grows with the connections, not with the events. The failed connections stay events.",
+          "default": false,
+          "x-env-var": "OTEL_EBPF_STATS_SOCKET_TRAFFIC_TCP_METRICS"
+        }
+      },
+      "type": "object",
+      "description": "SocketTrafficConfig configures the bytes and packets counted at the TCP and UDP sockets."
+    },
     "StatsConfig": {
       "properties": {
         "agent_ip": {
@@ -3072,6 +3126,10 @@
         "reverse_dns": {
           "$ref": "#/$defs/ReverseDNS",
           "description": "Allows stats that haven't been previously decorated with any source/destination name to override the name with the network hostname of the source and destination IPs. This is an experimental feature and it is not guaranteed to work on most virtualized environments for external traffic."
+        },
+        "socket_traffic": {
+          "$ref": "#/$defs/SocketTrafficConfig",
+          "description": "Configures the obi.stat.bytes and obi.stat.packets metrics (stats_socket_bytes and stats_socket_packets features)"
         }
       },
       "type": "object",

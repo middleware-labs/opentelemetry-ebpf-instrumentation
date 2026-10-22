@@ -409,6 +409,8 @@ extensions:
         capture:
           # Master switch for network flow observability.
           enabled: false
+          # Optional flow metric families. Supported values: flow_packets.
+          features: []
           # Capture backend: socket_filter (default) or tc.
           source: socket_filter
           # Identity of this OBI agent in flow metadata.
@@ -484,7 +486,7 @@ extensions:
         stats:
           # Master switch for TCP stats observability.
           enabled: false
-          # Supported values: tcp_rtt, tcp_failed_connections, tcp_successful_connections, tcp_retransmits, tcp_io.
+          # Supported values: tcp_rtt, tcp_failed_connections, tcp_successful_connections, tcp_retransmits, tcp_io, tcp_flow_control, tcp_congestion, tcp_closed_connections, dns_lookups, socket_bytes, socket_packets.
           features: []
           endpoint_identity:
             agent_ip: ""
@@ -513,6 +515,13 @@ extensions:
               cache:
                 size: 256
                 ttl: 1h0m0s
+          # Controls of the socket_bytes and socket_packets stats families.
+          socket_traffic:
+            protocols: [tcp, udp]
+            read_interval: 10s
+            max_entries: 65536
+            connection_rollup: false
+            tcp_metrics: false
           diagnostics:
             print_stats: false
 

@@ -1,0 +1,115 @@
+# OBI config v2 for a plain host (no Kubernetes), run as a container.
+# Same stats and attribute selection as obi-values-reader.yaml, without the Kubernetes parts:
+# network flows off, the stats read from the per-connection socket rows (reader flow).
+# Run it with --network host and --pid=host, see the command at the end of this file.
+file_format: "1.0"
+log_level: info
+
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      # network stats only: no process is instrumented
+      policy:
+        default_action: exclude
+      rules: []
+      network:
+        # network flows (obi.network.flow.bytes/packets) off
+        capture:
+          enabled: false
+        stats:
+          enabled: true
+          features:
+            - tcp_rtt
+            - tcp_failed_connections
+            - tcp_successful_connections
+            - tcp_retransmits
+            - tcp_flow_control
+            - tcp_congestion
+            - tcp_closed_connections
+            - dns_lookups
+            - socket_bytes
+            - socket_packets
+          socket_traffic:
+            protocols: [tcp, udp]
+            # how often the rows are read: not longer than the export interval (30s)
+            read_interval: 10s
+            max_entries: 65536
+            # TCP metrics read from the rows, like Datadog's connection stats
+            tcp_metrics: true
+            # closed connections merged by server port, like Datadog's rollup
+            connection_rollup: true
+          enrichment:
+            reverse_dns:
+              mode: ebpf
+              cache:
+                size: 256
+                ttl: 1h
+    enrich:
+      attributes:
+        select:
+          obi.stat.bytes:
+            include: ["*"]
+            exclude: [src.port, dst.port, src.container.id, dst.container.id]
+          obi.stat.packets:
+            include: ["*"]
+            exclude: [src.port, dst.port, src.container.id, dst.container.id]
+          obi.stat.tcp.rtt:
+            include: ["*"]
+            exclude: [src.port, dst.port, src.container.id, dst.container.id]
+          obi.stat.tcp.retransmits:
+            include: ["*"]
+            exclude: [src.port, dst.port, src.container.id, dst.container.id]
+          obi.stat.tcp.failed.connections:
+            include: ["*"]
+            exclude: [src.port, dst.port, src.container.id, dst.container.id]
+          obi.stat.tcp.successful.connections:
+            include: ["*"]
+            exclude: [src.port, dst.port, src.container.id, dst.container.id]
+          obi.stat.tcp.closed.connections:
+            include: ["*"]
+            exclude: [src.port, dst.port, src.container.id, dst.container.id]
+          obi.stat.tcp.flow_control.events:
+            include: ["*"]
+            exclude: [src.port, dst.port, src.container.id, dst.container.id]
+          obi.stat.tcp.ecn.ce.packets:
+            include: ["*"]
+            exclude: [src.port, dst.port, src.container.id, dst.container.id]
+          obi.stat.tcp.reordering.events:
+            include: ["*"]
+            exclude: [src.port, dst.port, src.container.id, dst.container.id]
+          obi.stat.tcp.out_of_order.packets:
+            include: ["*"]
+            exclude: [src.port, dst.port, src.container.id, dst.container.id]
+          obi.stat.dns.lookup.duration:
+            include: ["*"]
+            exclude: [src.port, dst.port, src.container.id, dst.container.id]
+      enrichers:
+        kubernetes:
+          mode: disabled
+
+meter_provider:
+  readers:
+    - periodic:
+        interval: 30000
+        exporter:
+          otlp_grpc:
+            # the Middleware agent on this host; change it if the agent runs elsewhere
+            endpoint: http://localhost:9319
+            tls:
+              insecure: true
+tracer_provider: null
+
+# Run (privileged, host network and host PIDs, cgroup and tracefs mounts). --pid=host is needed:
+# the reader flow reads /proc/<pid>/net/tcp of the host processes (open and listening sockets),
+# and the process and container attributes come from the host PIDs. The Docker socket gives the
+# container names and images.
+#   docker run -d --name obi --restart unless-stopped \
+#     --privileged --network host --pid=host \
+#     -v /sys/fs/cgroup:/sys/fs/cgroup \
+#     -v /sys/kernel/tracing:/sys/kernel/tracing \
+#     -v /var/run/docker.sock:/var/run/docker.sock:ro \
+#     -v "$PWD/obi-host-reader.yaml:/etc/obi/obi-host-reader.yaml:ro" \
+#     -e OTEL_EBPF_CONFIG_PATH=/etc/obi/obi-host-reader.yaml \
+#     ghcr.io/middleware-labs/ruby-app:ntest2
+# The image must be a build of the network-performance-monitoring branch.

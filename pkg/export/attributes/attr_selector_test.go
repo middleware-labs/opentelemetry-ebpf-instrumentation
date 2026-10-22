@@ -171,6 +171,41 @@ func TestFor_KubeDisabled(t *testing.T) {
 	}, p.For(NetworkFlow))
 }
 
+func TestFor_NotNormalizedSection(t *testing.T) {
+	for _, key := range []Section{
+		DotnetProcessMemoryWorkingSet.Section,
+		Section(DotnetProcessMemoryWorkingSet.Prom),
+	} {
+		selection := Selection{
+			key: InclusionLists{Include: []string{"k8s.namespace.name"}},
+		}
+		selection.Normalize()
+		p, err := NewAttrSelector(GroupKubernetes, &SelectorConfig{SelectionCfg: selection})
+		require.NoError(t, err)
+		assert.Equal(t, []attr.Name{"k8s.namespace.name"}, p.For(DotnetProcessMemoryWorkingSet), "key %q", key)
+	}
+}
+
+func TestFor_NotNormalizedSection_ExactOverridesGlob(t *testing.T) {
+	selection := Selection{
+		"jvm.thread.*":     InclusionLists{Exclude: []string{"*"}},
+		"jvm.thread.count": InclusionLists{Include: []string{"jvm.thread.daemon"}},
+	}
+	selection.Normalize()
+	p, err := NewAttrSelector(GroupKubernetes, &SelectorConfig{SelectionCfg: selection})
+	require.NoError(t, err)
+	assert.Equal(t, []attr.Name{"jvm.thread.daemon"}, p.For(JVMThreadCount))
+
+	selection = Selection{
+		"jvm.thread.*":     InclusionLists{Include: []string{"*"}},
+		"jvm.thread.count": InclusionLists{Exclude: []string{"jvm.thread.daemon"}},
+	}
+	selection.Normalize()
+	p, err = NewAttrSelector(GroupKubernetes, &SelectorConfig{SelectionCfg: selection})
+	require.NoError(t, err)
+	assert.NotContains(t, p.For(JVMThreadCount), attr.Name("jvm.thread.daemon"))
+}
+
 func TestNilDoesNotCrash(t *testing.T) {
 	assert.NotPanics(t, func() {
 		p, err := NewAttrSelector(GroupKubernetes, &SelectorConfig{})
@@ -429,4 +464,21 @@ func TestTracesGenAIToolCallAttributes(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, p.For(Traces), attr.GenAIToolCallArguments)
 	assert.NotContains(t, p.For(Traces), attr.GenAIToolCallResult)
+}
+
+// the user can name the socket traffic metrics in OTEL or Prometheus notation
+func TestFor_SocketTrafficSections(t *testing.T) {
+	for _, name := range []string{"obi.stat.bytes", "obi_stat_bytes", "obi_stat_bytes_total"} {
+		t.Run(name, func(t *testing.T) {
+			selection := Selection{
+				Section(name):            InclusionLists{Include: []string{"network.connection.role"}},
+				"obi_stat_packets_total": InclusionLists{Include: []string{"network.connection.role"}},
+			}
+			selection.Normalize()
+			p, err := NewAttrSelector(GroupStats, &SelectorConfig{SelectionCfg: selection})
+			require.NoError(t, err)
+			assert.Equal(t, []attr.Name{attr.NetworkConnectionRole}, p.For(StatSocketBytes))
+			assert.Equal(t, []attr.Name{attr.NetworkConnectionRole}, p.For(StatSocketPackets))
+		})
+	}
 }

@@ -406,6 +406,24 @@ func mustMapStatsFeatureDefaults(ex map[string]any) error {
 	if features.StatsTCPIo() {
 		want = append(want, "tcp_io")
 	}
+	if features.StatsTCPFlowControl() {
+		want = append(want, "tcp_flow_control")
+	}
+	if features.StatsTCPCongestion() {
+		want = append(want, "tcp_congestion")
+	}
+	if features.StatsTCPClosedConnections() {
+		want = append(want, "tcp_closed_connections")
+	}
+	if features.StatsDNSLookups() {
+		want = append(want, "dns_lookups")
+	}
+	if features.StatsSocketBytes() {
+		want = append(want, "socket_bytes")
+	}
+	if features.StatsSocketPackets() {
+		want = append(want, "socket_packets")
+	}
 
 	got := toStringSlice(featuresValue)
 	if !sameStringSet(got, want) {

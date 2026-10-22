@@ -294,6 +294,7 @@ func captureNetwork(cfg *obi.Config) schema.CaptureNetwork {
 	return schema.CaptureNetwork{
 		Capture: schema.NetworkCapture{
 			Enabled:    cfg.Enabled(obi.FeatureNetO11y),
+			Features:   networkFeatures(cfg.Metrics.Features),
 			Source:     schema.NetworkSource(cfg.NetworkFlows.Source),
 			BufferSize: cfg.EBPF.BufferSizes.TCP,
 			EndpointIdentity: schema.EndpointIdentity{
@@ -346,6 +347,13 @@ func captureNetwork(cfg *obi.Config) schema.CaptureNetwork {
 			},
 			Filters:    signalFilters(cfg.Filters.Stats),
 			Enrichment: statsEnrichment(cfg),
+			SocketTraffic: schema.StatsSocketTraffic{
+				Protocols:        slices.Clone(cfg.Stats.SocketTraffic.Protocols),
+				ReadInterval:     schema.Duration(cfg.Stats.SocketTraffic.ReadInterval),
+				MaxEntries:       cfg.Stats.SocketTraffic.MaxEntries,
+				ConnectionRollup: cfg.Stats.SocketTraffic.ConnectionRollup,
+				TCPMetrics:       cfg.Stats.SocketTraffic.TCPMetrics,
+			},
 			Diagnostics: schema.StatsDiagnostics{
 				PrintStats: cfg.Stats.Print,
 			},
@@ -381,7 +389,23 @@ const (
 	statsFeatureTCPSuccessfulConnections = "tcp_successful_connections"
 	statsFeatureTCPRetransmits           = "tcp_retransmits"
 	statsFeatureTCPIo                    = "tcp_io"
+	statsFeatureTCPFlowControl           = "tcp_flow_control"
+	statsFeatureTCPCongestion            = "tcp_congestion"
+	statsFeatureTCPClosedConnections     = "tcp_closed_connections"
+	statsFeatureDNSLookups               = "dns_lookups"
+	statsFeatureSocketBytes              = "socket_bytes"
+	statsFeatureSocketPackets            = "socket_packets"
 )
+
+const networkFeatureFlowPackets = "flow_packets"
+
+func networkFeatures(features featureexport.Features) []string {
+	out := []string{}
+	if features.NetworkFlowPackets() {
+		out = append(out, networkFeatureFlowPackets)
+	}
+	return out
+}
 
 func statsFeatures(features featureexport.Features) []string {
 	out := []string{}
@@ -399,6 +423,24 @@ func statsFeatures(features featureexport.Features) []string {
 	}
 	if features.StatsTCPIo() {
 		out = append(out, statsFeatureTCPIo)
+	}
+	if features.StatsTCPFlowControl() {
+		out = append(out, statsFeatureTCPFlowControl)
+	}
+	if features.StatsTCPCongestion() {
+		out = append(out, statsFeatureTCPCongestion)
+	}
+	if features.StatsTCPClosedConnections() {
+		out = append(out, statsFeatureTCPClosedConnections)
+	}
+	if features.StatsDNSLookups() {
+		out = append(out, statsFeatureDNSLookups)
+	}
+	if features.StatsSocketBytes() {
+		out = append(out, statsFeatureSocketBytes)
+	}
+	if features.StatsSocketPackets() {
+		out = append(out, statsFeatureSocketPackets)
 	}
 	return out
 }
