@@ -199,7 +199,9 @@ func readTCPRetransmitIntoStat(record *ringbuf.Record) (ebpf.Stat, error) {
 		Type:              ebpf.StatTypeTCPRetransmit,
 		TCPRetransmit:     true,
 		TCPRetransmitType: event.Type,
+		TCPRetransmitRole: event.Role,
 		CommonAttrs:       connToCommonAttrs(event.Conn),
+		ServerPort:        ebpf.ServerPortOf(event.Role, event.S_port, event.D_port),
 		Owner:             sockOwner(event.Owner),
 	}, nil
 }
@@ -218,8 +220,10 @@ func readTCPIoIntoStat(record *ringbuf.Record) (ebpf.Stat, error) {
 		TCPIo: &ebpf.TCPIo{
 			Direction: event.Direction,
 			Bytes:     total,
+			Role:      event.Role,
 		},
 		CommonAttrs: connToCommonAttrs(event.Conn),
+		ServerPort:  ebpf.ServerPortOf(event.Role, event.S_port, event.D_port),
 		Owner:       sockOwner(event.Owner),
 	}, nil
 }

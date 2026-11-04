@@ -172,7 +172,7 @@ Attributes carried on OBI's per-connection TCP statistics. Emitted when the `sta
 | `dns.question.type` | string | development | DNS record type of the question, as its name (`A`, `AAAA`, `SRV`...), or as its number for the types without a name in OBI. | A; AAAA; SRV |
 | `network.tcp.flow_control.event` | enum | development | Kind of TCP flow-control event. `zero_window` is a zero-window probe sent while the peer advertises a zero receive window. | zero_window; unknown |
 | `network.tcp.handshake.role` | enum | development | Role of the local endpoint in the TCP three-way handshake (`client` initiated the SYN, `server` was awaiting it). | client; server; unknown |
-| `network.tcp.retransmit.type` | enum | development | Cause of a TCP retransmission: `timeout` when the retransmission timer expired, `fast` during fast recovery (duplicate ACKs or SACK), `other` for anything else (e.g. tail loss probes). | timeout; fast; other |
+| `network.tcp.retransmit.type` | enum | development | Cause of a TCP retransmission: `timeout` when the retransmission timer expired, `fast` during fast recovery (duplicate ACKs or SACK), `other` for anything else (e.g. SYN retransmits, and the tail loss probes: the socket traffic rows add them when the connection closes). | timeout; fast; other |
 | `reason` | enum | development | Classification of why a TCP connection failed. | refused; reset; timed-out; host-unreachable; net-unreachable; other; unknown |
 
 ## `registry.obi.traces_resource`

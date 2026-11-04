@@ -29,6 +29,9 @@ type tcpSockets struct {
 	procRoot string
 	// the TCP sockets per network namespace, read at most once per map read
 	netns map[uint32]*netnsSockets
+	// startListening are the listening ports per network namespace when OBI started, for the
+	// role of the connections opened before
+	startListening map[uint32]map[uint16]struct{}
 }
 
 type netnsSockets struct {
@@ -39,6 +42,14 @@ type netnsSockets struct {
 
 func newTCPSockets(procRoot string) *tcpSockets {
 	return &tcpSockets{procRoot: procRoot, netns: map[uint32]*netnsSockets{}}
+}
+
+// seedListening reads the ports that listen when OBI starts, like Datadog's port_bindings: the
+// connections opened before have no handshake role
+func (s *tcpSockets) seedListening() error {
+	ports, err := listeningTCPPorts(s.procRoot)
+	s.startListening = ports
+	return err
 }
 
 // reset forgets the connections read before, at the start of each map read
@@ -76,16 +87,21 @@ func (s *tcpSockets) isOpen(k *key, pid uint32) bool {
 	return ok
 }
 
-// isListening tells whether the local port of a row is listening in its network namespace,
-// like Datadog's port_bindings: the row is then the server side. known is false when the
-// sockets of its process can't be read.
-func (s *tcpSockets) isListening(k *key, pid uint32) (listening, known bool) {
-	sockets, ok := s.sockets(k, pid)
+// isListening tells whether the local port of a row listened when OBI started, like Datadog's
+// port_bindings: the row is then the server side. Only the connections opened before OBI started
+// need it, and a server that ended closed its listener too. In a network namespace without
+// process then, it takes the ports listening now. It is false when they can't be read.
+func (s *tcpSockets) isListening(k *key, pid uint32) bool {
+	ports, ok := s.startListening[k.Netns]
 	if !ok {
-		return false, false
+		sockets, read := s.sockets(k, pid)
+		if !read {
+			return false
+		}
+		ports = sockets.listening
 	}
-	_, listening = sockets.listening[k.Conn.S_port]
-	return listening, true
+	_, listening := ports[k.Conn.S_port]
+	return listening
 }
 
 // readTCPSockets reads the TCP sockets of tcp and tcp6 in a /proc/<pid>/net directory. It

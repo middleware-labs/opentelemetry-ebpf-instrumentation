@@ -57,6 +57,8 @@ type Packet struct {
 
 // Lookup is a DNS question with its answer, or a question that got no answer before the timeout.
 type Lookup struct {
+	// Proto is the transport protocol: syscall.IPPROTO_UDP or syscall.IPPROTO_TCP.
+	Proto    uint8
 	Client   Endpoint
 	Server   Endpoint
 	Duration time.Duration
@@ -148,6 +150,7 @@ func (m *Matcher) Expire(now uint64) []Lookup {
 		}
 		m.remove(pd)
 		expired = append(expired, Lookup{
+			Proto:    pd.proto,
 			Client:   pd.client,
 			Server:   pd.server,
 			Duration: m.cfg.Timeout,
@@ -246,6 +249,7 @@ func (m *Matcher) answer(p *Packet) (Lookup, bool) {
 		duration = time.Duration(p.TS - pd.ts)
 	}
 	return Lookup{
+		Proto:    pd.proto,
 		Client:   pd.client,
 		Server:   pd.server,
 		Duration: duration,

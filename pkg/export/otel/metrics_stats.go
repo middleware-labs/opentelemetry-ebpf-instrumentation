@@ -97,6 +97,7 @@ type statMetricsExporter struct {
 	tcpECNCEPackets          *Expirer[*ebpf.Stat, metric2.Int64Counter, int64]
 	tcpReorderingEvents      *Expirer[*ebpf.Stat, metric2.Int64Counter, int64]
 	tcpOutOfOrderPackets     *Expirer[*ebpf.Stat, metric2.Int64Counter, int64]
+	tcpCongestionEvents      *Expirer[*ebpf.Stat, metric2.Int64Counter, int64]
 	dnsLookupDuration        *Expirer[*ebpf.Stat, metric2.Float64Histogram, float64]
 	socketBytes              *Expirer[*ebpf.Stat, metric2.Int64Counter, int64]
 	socketPackets            *Expirer[*ebpf.Stat, metric2.Int64Counter, int64]
@@ -298,6 +299,9 @@ func newStatMetricsExporter(
 		if nme.tcpOutOfOrderPackets, err = newCounter(attributes.StatTCPOutOfOrderPackets); err != nil {
 			return nil, err
 		}
+		if nme.tcpCongestionEvents, err = newCounter(attributes.StatTCPCongestionEvents); err != nil {
+			return nil, err
+		}
 	}
 
 	if cfg.CommonCfg.Features.StatsDNSLookups() {
@@ -384,6 +388,10 @@ func (me *statMetricsExporter) Do(ctx context.Context) {
 			}
 			if v.TCPCongestion != nil {
 				me.recordTCPCongestion(ctx, v)
+			}
+			if me.tcpCongestionEvents != nil && v.TCPCongestionEvent != nil {
+				tcpCongestionEvents, attrs := me.tcpCongestionEvents.ForRecord(v)
+				tcpCongestionEvents.Add(ctx, int64(v.Events()), metric2.WithAttributeSet(attrs))
 			}
 			if me.dnsLookupDuration != nil && v.DNSLookup != nil {
 				dnsLookupDuration, attrs := me.dnsLookupDuration.ForRecord(v)

@@ -32,6 +32,8 @@ const (
 	StatTypeDNSLookup = StatType(StatsStatTypeK_statTypeDnsPacket)
 	// StatTypeSocketTraffic stats are read from the socket_traffic map, not from the ring buffer.
 	StatTypeSocketTraffic = StatType(StatsStatTypeK_statTypeSocketTraffic)
+	// StatTypeTCPCongestionEvent stats are built from the socket traffic rows only.
+	StatTypeTCPCongestionEvent = StatType(StatsStatTypeK_statTypeTcpCongestionEvent)
 )
 
 type TCPFailReasonType string
@@ -111,6 +113,23 @@ const (
 	CodeFlowControlEventZeroWindow = NetworkTCPFlowControlEventCode(StatsTcpFlowControlEventFlowControlEventZeroWindow)
 )
 
+type NetworkTCPCongestionEventType string
+
+const (
+	CongestionEventUnknown  NetworkTCPCongestionEventType = "unknown"
+	CongestionEventRTO      NetworkTCPCongestionEventType = "rto"
+	CongestionEventRecovery NetworkTCPCongestionEventType = "recovery"
+)
+
+// NetworkTCPCongestionEventCode aliases the bpf2go-generated constants derived
+// from enum tcp_congestion_event in bpf/statsolly/types.h.
+type NetworkTCPCongestionEventCode uint8
+
+const (
+	CodeCongestionEventRTO      = NetworkTCPCongestionEventCode(StatsTcpCongestionEventCongestionEventRto)
+	CodeCongestionEventRecovery = NetworkTCPCongestionEventCode(StatsTcpCongestionEventCongestionEventRecovery)
+)
+
 type NetworkIoDirectionType string
 
 const (
@@ -140,9 +159,11 @@ type Stat struct {
 	TCPClosedConnection     *TCPClosedConnection     `json:"-"`
 	TCPRetransmit           bool                     `json:"-"`
 	TCPRetransmitType       uint8                    `json:"-"`
+	TCPRetransmitRole       uint8                    `json:"-"`
 	TCPIo                   *TCPIo                   `json:"-"`
 	TCPFlowControl          *TCPFlowControl          `json:"-"`
 	TCPCongestion           *TCPCongestion           `json:"-"`
+	TCPCongestionEvent      *TCPCongestionEvent      `json:"-"`
 	DNSLookup               *DNSLookup               `json:"-"`
 	SocketTraffic           *SocketTraffic           `json:"-"`
 	// Owner is the process of the socket of the TCP stats
@@ -158,9 +179,25 @@ type Stat struct {
 	// SameHost tells whether the remote socket is on this host: only the socket traffic reader
 	// looks it up
 	SameHost bool `json:"-"`
+	// NAT is the address translation of the connection of a socket traffic row, nil without NAT.
+	// The address and port attributes report its endpoints after NAT.
+	NAT *NAT `json:"-"`
 
 	// Attrs of the flow record: source/destination, OBI IP, etc...
 	CommonAttrs pipe.CommonAttrs
+}
+
+// Endpoints are the addresses and ports of both sides of a connection
+type Endpoints struct {
+	SrcAddr, DstAddr pipe.IPAddr
+	SrcPort, DstPort uint16
+}
+
+// NAT is the address translation of a connection from conntrack: its endpoints before NAT, as its
+// client sent them, and after it. CommonAttrs keeps the endpoints of the socket, one of them:
+// the client's socket has them before NAT, the server's after it.
+type NAT struct {
+	Pre, Post Endpoints
 }
 
 // ServerPortOf returns the port of the server side of a connection seen from the socket with
@@ -202,6 +239,13 @@ type TCPFlowControl struct {
 	Role  uint8 `json:"role"`
 }
 
+// TCPCongestionEvent is a kind of congestion event of a socket, like Datadog's tcp_event_stats:
+// how many times it entered loss (RTO) or fast recovery, in Count.
+type TCPCongestionEvent struct {
+	Event uint8 `json:"event"`
+	Role  uint8 `json:"role"`
+}
+
 // TCPCongestion carries the increase of the kernel's per-socket congestion counters
 // since the previous event for the same socket.
 type TCPCongestion struct {
@@ -234,6 +278,9 @@ type SockOwner struct {
 	DstPid      uint32
 	DstExecName string
 	DstCgroupID uint64
+	// DstContainerID is the container of the remote address when its process is unknown, from
+	// the addresses of the local containers
+	DstContainerID string
 }
 
 // SocketTraffic is the traffic of a socket in one direction since the previous read
@@ -262,6 +309,7 @@ type SocketTraffic struct {
 type TCPIo struct {
 	Direction uint8  `json:"direction"`
 	Bytes     uint64 `json:"bytes"`
+	Role      uint8  `json:"role"`
 }
 
 // Conn mirrors connection_info_t from bpf/common/connection_info.h.
@@ -315,7 +363,8 @@ type StatsTCPRetransmit struct {
 	_     structs.HostLayout
 	Flags uint8
 	Type  uint8
-	Pad   [2]uint8
+	Role  uint8
+	Pad   [1]uint8
 	Conn
 	Owner StatsSockOwnerT
 }
@@ -353,7 +402,7 @@ type StatsTCPIo struct {
 	Flags     uint8
 	Direction uint8
 	Count     uint8
-	Pad       [1]uint8
+	Role      uint8
 	Bytes     [TCPIoBatchSize]uint32
 	Conn
 	Owner StatsSockOwnerT
@@ -384,9 +433,8 @@ func CString(b []uint8) string {
 	return string(b)
 }
 
-// tcpRowFeatures are the TCP stat metrics that the socket traffic rows hold: all but the failed
-// connections, which stay events
-const tcpRowFeatures = export.FeatureStatsTCPRtt | export.FeatureStatsTCPSuccessfulConnections |
+// tcpRowFeatures are the TCP stat metrics that the socket traffic rows hold
+const tcpRowFeatures = export.FeatureStatsTCPRtt | export.FeatureStatsTCPFailedConnections | export.FeatureStatsTCPSuccessfulConnections |
 	export.FeatureStatsTCPClosedConnections | export.FeatureStatsTCPRetransmits | export.FeatureStatsTCPIo |
 	export.FeatureStatsTCPFlowControl | export.FeatureStatsTCPCongestion
 

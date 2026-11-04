@@ -20,6 +20,8 @@ enum stat_type : u8 {
     k_stat_type_dns_packet = 9,
     // not a ring buffer event: user space reads these stats from the socket_traffic map
     k_stat_type_socket_traffic = 10,
+    // not a ring buffer event: user space builds them from the socket traffic rows
+    k_stat_type_tcp_congestion_event = 11,
 };
 
 // batch size used in tcp io metric
@@ -51,6 +53,12 @@ enum tcp_retransmit_type : u8 {
 
 enum tcp_flow_control_event : u8 {
     flow_control_event_zero_window = 1,
+};
+
+// like Datadog's tcp_event_stats: the socket entered loss (RTO) or fast recovery
+enum tcp_congestion_event : u8 {
+    congestion_event_rto = 1,
+    congestion_event_recovery = 2,
 };
 
 enum network_io_direction : u8 {

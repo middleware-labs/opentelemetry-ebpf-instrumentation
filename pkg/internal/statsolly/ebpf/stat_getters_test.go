@@ -93,6 +93,17 @@ func TestNetworkTCPHandshakeRoleGetterClosedConnection(t *testing.T) {
 	}
 }
 
+func TestNetworkTCPHandshakeRoleGetterRetransmitAndIo(t *testing.T) {
+	getter, ok := StatGetters(attr.NetworkTCPHandshakeRole)
+	require.True(t, ok)
+
+	retransmit := &Stat{Type: StatTypeTCPRetransmit, TCPRetransmit: true, TCPRetransmitRole: uint8(CodeRoleServer)}
+	assert.Equal(t, string(RoleServer), getter(retransmit).Value.AsString())
+
+	io := &Stat{Type: StatTypeTCPIo, TCPIo: &TCPIo{Role: uint8(CodeRoleClient)}}
+	assert.Equal(t, string(RoleClient), getter(io).Value.AsString())
+}
+
 func TestServerPort(t *testing.T) {
 	assert.Equal(t, uint16(5432), ServerPortOf(uint8(CodeRoleClient), 41001, 5432), "the client's remote port")
 	assert.Equal(t, uint16(5432), ServerPortOf(uint8(CodeRoleServer), 5432, 41001), "the server's own port")

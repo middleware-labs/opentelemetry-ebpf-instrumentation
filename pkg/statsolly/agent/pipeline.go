@@ -5,6 +5,7 @@ package agent // import "go.opentelemetry.io/obi/pkg/statsolly/agent"
 
 import (
 	"context"
+	"slices"
 
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/otel"
@@ -40,7 +41,7 @@ func statProcesses(src, dst bool) func(s *ebpf.Stat) (procmeta.Process, procmeta
 		} else {
 			o := &s.Owner
 			srcProc = procmeta.Process{Pid: o.Pid, ExecName: o.ExecName, CgroupID: o.CgroupID}
-			dstProc = procmeta.Process{Pid: o.DstPid, ExecName: o.DstExecName, CgroupID: o.DstCgroupID}
+			dstProc = procmeta.Process{Pid: o.DstPid, ExecName: o.DstExecName, CgroupID: o.DstCgroupID, ContainerID: o.DstContainerID}
 		}
 		if !src {
 			srcProc = procmeta.Process{}
@@ -94,6 +95,7 @@ func (s *Stats) buildPipeline(ctx context.Context) (*swarm.Runner, error) {
 	ebpfStats := msgh.QueueFromConfig[[]*ebpf.Stat](s.cfg, s.ctxInfo.Metrics, "ebpfStats", msg.ClosingAttempts(senders))
 	swi.Add(swarm.DirectInstance(newRingBufTracer(s, ebpfStats)), swarm.WithID("RingBufTracer"))
 	if dnsLookups {
+		s.findDNSServerContainers(ctx)
 		swi.Add(swarm.DirectInstance(newDNSTracer(s, ebpfStats)), swarm.WithID("DNSTracer"))
 	}
 	if socketTraffic {
@@ -105,7 +107,8 @@ func (s *Stats) buildPipeline(ctx context.Context) (*swarm.Runner, error) {
 	// whether the node needs to be instantiated or just bypass their input/output channels.
 	procDecoratedStats := msgh.QueueFromConfig[[]*ebpf.Stat](s.cfg, s.ctxInfo.Metrics, "procDecoratedStats")
 	features := &s.cfg.Metrics.Features
-	srcProc, dstProc := processAttrsSelected(s.cfg, append(socketTrafficMetrics(features), tcpStatMetrics(features)...))
+	srcProc, dstProc := processAttrsSelected(s.cfg,
+		slices.Concat(socketTrafficMetrics(features), tcpStatMetrics(features), dnsMetrics(features)))
 	swi.Add(procattrs.DecoratorProvider(s.processResolver(srcProc || dstProc), statProcesses(srcProc, dstProc),
 		func(s *ebpf.Stat, p *procmeta.Pair) { s.Processes = p },
 		ebpfStats, procDecoratedStats), swarm.WithID("ProcessAttributesDecorator"))

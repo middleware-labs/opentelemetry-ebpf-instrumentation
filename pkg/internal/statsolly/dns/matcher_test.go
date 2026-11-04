@@ -71,6 +71,7 @@ func TestMatcherQuestionAndAnswer(t *testing.T) {
 	l := mustLookup(t, m, answer(ms(1050), google, pod, dnsparser.RCodeSuccess))
 
 	assert.Equal(t, Lookup{
+		Proto:    syscall.IPPROTO_UDP,
 		Client:   pod,
 		Server:   google,
 		Duration: 50 * time.Millisecond,
@@ -102,6 +103,7 @@ func TestMatcherTimeout(t *testing.T) {
 	expired := m.Expire(ms(1001) + uint64(DefaultConfig.Timeout))
 	require.Len(t, expired, 1)
 	assert.Equal(t, Lookup{
+		Proto:    syscall.IPPROTO_UDP,
 		Client:   pod,
 		Server:   google,
 		Duration: DefaultConfig.Timeout,

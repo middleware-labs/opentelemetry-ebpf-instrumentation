@@ -338,5 +338,6 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		{"stats_congestion_min_interval_ns", []any{uint64(0), uint64(time.Second)}},
 		{"stats_sock_owner_enabled", []any{false, true}},
 		{"stats_tcp_metrics_enabled", []any{false, true}},
+		{"stats_tcp_failures_enabled", []any{false, true}},
 	})
 }

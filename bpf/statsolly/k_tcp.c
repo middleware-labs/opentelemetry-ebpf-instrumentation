@@ -41,7 +41,7 @@ typedef struct tcp_io {
     u8 flags; // Must be first, we use it to tell what kind of event we have on the ring buffer
     enum network_io_direction direction;
     u8 count;
-    u8 _pad[1];
+    enum tcp_handshake_role role;
     u32 bytes[k_tcp_io_batch_size];
     connection_info_t conn;
     sock_owner_t owner;
@@ -91,6 +91,7 @@ static __always_inline void flush_tcp_io_accum(struct sock *sk,
     se->flags = k_stat_type_tcp_io;
     se->direction = direction;
     se->count = accum->count;
+    se->role = accum->role;
     bpf_memcpy(se->bytes, accum->bytes, sizeof(se->bytes));
     se->conn = conn;
     read_sock_owner(sk, &se->owner);
@@ -118,6 +119,10 @@ accumulate_tcp_io(struct sock *sk, enum network_io_direction direction, u32 byte
         tcp_io_accum_t new_accum = {};
         new_accum.bytes[0] = bytes;
         new_accum.count = 1;
+        // sock_role is deleted at TCP_CLOSE, which can come before the flush at tcp_close
+        // (shutdown, then close after TIME_WAIT)
+        const u8 *const role_ptr = bpf_map_lookup_elem(&sock_role, &sk);
+        new_accum.role = role_ptr ? *role_ptr : role_unknown;
         if (bpf_map_update_elem(&tcp_io_accum, &key, &new_accum, BPF_NOEXIST) != 0) {
             bpf_d_printk("tcp_io_accum map full, dropping %u bytes", bytes);
         }

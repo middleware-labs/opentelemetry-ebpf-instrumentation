@@ -921,6 +921,8 @@ func getDefinitions(
 			Attributes: map[attr.Name]Default{
 				attr.NetworkTCPHandshakeRole: false,
 				attr.NetworkPeerSameHost:     false,
+				attr.SrcPreNATAddress:        false,
+				attr.DstPreNATAddress:        false,
 			},
 		},
 		StatTCPFailedConnections.Section: {
@@ -928,20 +930,29 @@ func getDefinitions(
 			Attributes: map[attr.Name]Default{
 				attr.TCPFailedConnectionReason: false,
 				attr.NetworkTCPHandshakeRole:   false,
+				attr.NetworkPeerSameHost:       false,
+				attr.SrcPreNATAddress:          false,
+				attr.DstPreNATAddress:          false,
 			},
 		},
 		StatTCPRetransmits.Section: {
 			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes},
 			Attributes: map[attr.Name]Default{
 				attr.NetworkTCPRetransmitType: true,
+				attr.NetworkTCPHandshakeRole:  false,
 				attr.NetworkPeerSameHost:      false,
+				attr.SrcPreNATAddress:         false,
+				attr.DstPreNATAddress:         false,
 			},
 		},
 		StatTCPIo.Section: {
 			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes},
 			Attributes: map[attr.Name]Default{
-				attr.NetworkIoDirection:  true,
-				attr.NetworkPeerSameHost: false,
+				attr.NetworkIoDirection:      true,
+				attr.NetworkTCPHandshakeRole: false,
+				attr.NetworkPeerSameHost:     false,
+				attr.SrcPreNATAddress:        false,
+				attr.DstPreNATAddress:        false,
 			},
 		},
 		StatTCPSuccessfulConnections.Section: {
@@ -949,6 +960,8 @@ func getDefinitions(
 			Attributes: map[attr.Name]Default{
 				attr.NetworkTCPHandshakeRole: false,
 				attr.NetworkPeerSameHost:     false,
+				attr.SrcPreNATAddress:        false,
+				attr.DstPreNATAddress:        false,
 			},
 		},
 		StatTCPClosedConnections.Section: {
@@ -956,6 +969,8 @@ func getDefinitions(
 			Attributes: map[attr.Name]Default{
 				attr.NetworkTCPHandshakeRole: false,
 				attr.NetworkPeerSameHost:     false,
+				attr.SrcPreNATAddress:        false,
+				attr.DstPreNATAddress:        false,
 			},
 		},
 		StatTCPFlowControlEvents.Section: {
@@ -964,6 +979,8 @@ func getDefinitions(
 				attr.NetworkTCPFlowControlEvent: true,
 				attr.NetworkTCPHandshakeRole:    false,
 				attr.NetworkPeerSameHost:        false,
+				attr.SrcPreNATAddress:           false,
+				attr.DstPreNATAddress:           false,
 			},
 		},
 		StatTCPECNCEPackets.Section: {
@@ -971,6 +988,8 @@ func getDefinitions(
 			Attributes: map[attr.Name]Default{
 				attr.NetworkTCPHandshakeRole: false,
 				attr.NetworkPeerSameHost:     false,
+				attr.SrcPreNATAddress:        false,
+				attr.DstPreNATAddress:        false,
 			},
 		},
 		StatTCPReorderingEvents.Section: {
@@ -978,6 +997,8 @@ func getDefinitions(
 			Attributes: map[attr.Name]Default{
 				attr.NetworkTCPHandshakeRole: false,
 				attr.NetworkPeerSameHost:     false,
+				attr.SrcPreNATAddress:        false,
+				attr.DstPreNATAddress:        false,
 			},
 		},
 		StatTCPOutOfOrderPackets.Section: {
@@ -985,6 +1006,18 @@ func getDefinitions(
 			Attributes: map[attr.Name]Default{
 				attr.NetworkTCPHandshakeRole: false,
 				attr.NetworkPeerSameHost:     false,
+				attr.SrcPreNATAddress:        false,
+				attr.DstPreNATAddress:        false,
+			},
+		},
+		StatTCPCongestionEvents.Section: {
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.NetworkTCPCongestionEvent: true,
+				attr.NetworkTCPHandshakeRole:   false,
+				attr.NetworkPeerSameHost:       false,
+				attr.SrcPreNATAddress:          false,
+				attr.DstPreNATAddress:          false,
 			},
 		},
 		StatSocketBytes.Section: {
@@ -994,6 +1027,8 @@ func getDefinitions(
 				attr.NetworkIoDirection:    true,
 				attr.NetworkConnectionRole: false,
 				attr.NetworkPeerSameHost:   false,
+				attr.SrcPreNATAddress:      false,
+				attr.DstPreNATAddress:      false,
 			},
 		},
 		StatSocketPackets.Section: {
@@ -1003,10 +1038,12 @@ func getDefinitions(
 				attr.NetworkIoDirection:    true,
 				attr.NetworkConnectionRole: false,
 				attr.NetworkPeerSameHost:   false,
+				attr.SrcPreNATAddress:      false,
+				attr.DstPreNATAddress:      false,
 			},
 		},
 		StatDNSLookupDuration.Section: {
-			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes},
 			Attributes: map[attr.Name]Default{
 				attr.ErrorType:       true,
 				attr.DNSQuestionName: false,

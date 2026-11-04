@@ -708,6 +708,12 @@ var (
 		Unit:    "{packet}",
 		Type:    InstrumentCounter,
 	})
+	StatTCPCongestionEvents = metric(Name{
+		Section: "obi.stat.tcp.congestion.events",
+		OTEL:    "obi.stat.tcp.congestion.events",
+		Unit:    "{event}",
+		Type:    InstrumentCounter,
+	})
 	// the attributes.select section drops the trailing ".bytes", like NetworkFlow
 	StatSocketBytes = metric(Name{
 		Section: "obi.stat",

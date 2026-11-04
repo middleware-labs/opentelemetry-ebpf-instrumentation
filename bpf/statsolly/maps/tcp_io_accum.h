@@ -16,7 +16,8 @@ typedef struct tcp_io_accum_key {
 typedef struct tcp_io_accum {
     u32 bytes[k_tcp_io_batch_size];
     u8 count;
-    u8 _pad[3];
+    enum tcp_handshake_role role;
+    u8 _pad[2];
 } tcp_io_accum_t;
 
 struct {

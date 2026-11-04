@@ -12,3 +12,7 @@ func WithNetNS(_ int, fn func() error) error {
 func IsIsolated(_ int) (bool, error) {
 	return false, nil
 }
+
+func Inode(_ int) (uint64, error) {
+	return 0, nil
+}

@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net"
 	"os"
 	"slices"
 	"syscall"
@@ -21,6 +22,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/internal/pipe"
 	"go.opentelemetry.io/obi/pkg/internal/statsolly/ebpf"
+	"go.opentelemetry.io/obi/pkg/internal/statsolly/nat"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 )
@@ -42,6 +44,10 @@ const (
 	// their close are looked up again: the remote side of a local connection usually closes
 	// right after
 	pendingRetryInterval = time.Second
+	// closedNATRetention is how long the translation of a closed row is kept: a new connection
+	// with the same addresses reuses its conntrack entry until it expires, and inserts none.
+	// The kernel's UDP conntrack timeout (nf_conntrack_udp_timeout).
+	closedNATRetention = 30 * time.Second
 	// wellKnownPorts bounds the server ports of the remote hosts, like Datadog's
 	// fixIncomingConnectionDirection
 	wellKnownPorts = 1024
@@ -50,6 +56,12 @@ const (
 type rowsReader interface {
 	lookup(fn func(*key, *row)) error
 	delete(k *key) error
+}
+
+// natTracker extracts the used methods from nat.Tracker, for testing.
+type natTracker interface {
+	NAT(k *key, client bool) *ebpf.NAT
+	Run(ctx context.Context)
 }
 
 // closedReader extracts the used methods from ringbuf.Reader, for testing.
@@ -81,7 +93,8 @@ type Reader struct {
 	// rollup merges the closed connections until the next map read, nil when disabled
 	rollup *connectionRollup
 	// peers finds the remote side on this host: for the dst.* process and container attributes,
-	// network.peer.same_host and the UDP role. nil when none of them is used.
+	// network.peer.same_host, the UDP role and the translations of the server sides. nil when
+	// none of them is used.
 	peers *peerIndex
 	// resolveRemote is true when a dst.* process or container attribute or network.peer.same_host
 	// is selected: a closed connection whose remote socket is not known yet waits in
@@ -91,6 +104,11 @@ type Reader struct {
 	// retryClosed are the closed stats whose remote socket was not found yet: its close event
 	// can come after the map read. They wait one more read.
 	retryClosed []*ebpf.Stat
+	// nat finds the address translation of the rows, nil when no attribute reports it
+	nat natTracker
+	// natRows keeps the translation of each row while it lives: under churn, the LRU of the
+	// conntrack entries evicts the oldest ones, those of the longest connections
+	natRows map[key]natRow
 	// monoNow is the kernel monotonic clock, replaceable for testing
 	monoNow func() time.Duration
 	// the ephemeral port range, for the role of the UDP rows
@@ -106,6 +124,7 @@ func NewReader(
 	procRoot string,
 	emit Emit,
 	resolvePeers bool,
+	natTracker *nat.Tracker,
 	metrics imetrics.Reporter,
 ) *Reader {
 	if metrics == nil {
@@ -118,12 +137,12 @@ func NewReader(
 	var peers *peerIndex
 	// the role of a UDP row can depend on its remote socket being on this host
 	udpRole := cfg.UDP() && (emit.Role || emit.ServerPort || cfg.ConnectionRollup)
-	if resolvePeers || udpRole {
+	if resolvePeers || udpRole || natTracker != nil {
 		// a closed socket stays known for a while: its peer can close later
 		peers = newPeerIndex(peerTTLIntervals * cfg.ReadInterval)
 	}
 	ephemeralLow, ephemeralHigh := ephemeralPortRange(procRoot)
-	return &Reader{
+	r := &Reader{
 		log:           slog.With("component", "socktraffic.Reader"),
 		interval:      cfg.ReadInterval,
 		rollup:        rollup,
@@ -141,6 +160,16 @@ func NewReader(
 		tcpSockets:    newTCPSockets(procRoot),
 		monoNow:       timing.MonoClock(),
 	}
+	if natTracker != nil {
+		r.nat, r.natRows = natTracker, map[key]natRow{}
+	}
+	if r.roleUsed() {
+		if err := r.tcpSockets.seedListening(); err != nil {
+			r.log.Warn("can't read the TCP ports listening when OBI started: the connections opened"+
+				" before get an unknown role when their process ends", "error", err)
+		}
+	}
+	return r
 }
 
 func (r *Reader) TraceLoop(out *msg.Queue[[]*ebpf.Stat]) swarm.RunFunc {
@@ -156,6 +185,9 @@ func (r *Reader) TraceLoop(out *msg.Queue[[]*ebpf.Stat]) swarm.RunFunc {
 			<-ctx.Done()
 			_ = events.Close()
 		}()
+		if r.nat != nil {
+			r.nat.Run(ctx)
+		}
 
 		r.readLoop(ctx, events, out)
 	}
@@ -250,13 +282,14 @@ func (r *Reader) appendClosed(stats []*ebpf.Stat, record *ringbuf.Record) []*ebp
 }
 
 // appendClosedStats appends the stats of a closed connection, or keeps them until the next
-// map read: in the rollup, or to find the remote process.
+// map read: in the rollup, to find the remote process, or the client socket of a translated server.
 func (r *Reader) appendClosedStats(stats []*ebpf.Stat, k *key, v *row, delta totals) []*ebpf.Stat {
 	role := r.connectionRole(k, v)
+	defer r.closeNATRow(k)
 	switch {
 	case r.rollup != nil:
 		for _, s := range r.rowStats(nil, k, v, role, delta, true) {
-			if !r.rollup.add(s, role) {
+			if r.dropIntraHostDNAT(s) || !r.rollup.add(s, role) {
 				r.keepClosed(s)
 			}
 		}
@@ -265,7 +298,7 @@ func (r *Reader) appendClosedStats(stats []*ebpf.Stat, k *key, v *row, delta tot
 		// sent now when the remote socket is known: holding every closed connection until the
 		// map read would send them all at once
 		for _, s := range r.rowStats(nil, k, v, role, delta, true) {
-			if r.findRemote(s) {
+			if !r.dropIntraHostDNAT(s) && r.findRemote(s) {
 				stats = append(stats, s)
 			} else {
 				r.pendingClosed = append(r.pendingClosed, s)
@@ -273,7 +306,14 @@ func (r *Reader) appendClosedStats(stats []*ebpf.Stat, k *key, v *row, delta tot
 		}
 		return stats
 	default:
-		return r.rowStats(stats, k, v, role, delta, true)
+		for _, s := range r.rowStats(nil, k, v, role, delta, true) {
+			if r.dropIntraHostDNAT(s) {
+				r.keepClosed(s)
+			} else {
+				stats = append(stats, s)
+			}
+		}
+		return stats
 	}
 }
 
@@ -283,8 +323,8 @@ func (r *Reader) keepClosed(s *ebpf.Stat) {
 	r.pendingClosed = append(r.pendingClosed, s)
 }
 
-// rowStats appends the stats of the increase of a row, with the port of its server side and
-// the role of the connection (from connectionRole) when they are selected
+// rowStats appends the stats of the increase of a row, with its address translation, the port of
+// its server side and the role of the connection (from connectionRole) when they are selected
 func (r *Reader) rowStats(stats []*ebpf.Stat, k *key, v *row, role uint8, delta totals, closed bool) []*ebpf.Stat {
 	if r.emit.Role && role != uint8(v.Role) {
 		resolved := *v
@@ -293,12 +333,106 @@ func (r *Reader) rowStats(stats []*ebpf.Stat, k *key, v *row, role uint8, delta 
 	}
 	n := len(stats)
 	stats = r.emit.appendRowStats(stats, k, v, delta, closed)
-	if r.emit.ServerPort {
-		for _, s := range stats[n:] {
-			s.ServerPort = ebpf.ServerPortOf(role, k.Conn.S_port, k.Conn.D_port)
+	if len(stats) == n {
+		return stats
+	}
+
+	translation := r.natOf(k, role)
+	srcPort, dstPort := k.Conn.S_port, k.Conn.D_port
+	if translation != nil {
+		srcPort, dstPort = translation.Post.SrcPort, translation.Post.DstPort
+		if r.peers != nil {
+			r.peers.addTranslated(k, v, translation.Post)
+		}
+	}
+	for _, s := range stats[n:] {
+		s.NAT = translation
+		if r.emit.ServerPort {
+			s.ServerPort = ebpf.ServerPortOf(role, srcPort, dstPort)
 		}
 	}
 	return stats
+}
+
+type natRow struct {
+	nat    *ebpf.NAT
+	seen   time.Duration
+	closed bool
+}
+
+// natOf returns the address translation of a row, nil without NAT. It looks it up again at
+// each read, as a new connection can reuse the addresses of a row, and takes the one kept for
+// the row, or for the closed row of the same addresses, when its conntrack entry was evicted.
+func (r *Reader) natOf(k *key, role uint8) *ebpf.NAT {
+	if r.nat == nil {
+		return nil
+	}
+	if n := r.nat.NAT(k, ebpf.NetworkTCPHandshakeRoleCode(role) == ebpf.CodeRoleClient); n != nil {
+		r.natRows[*k] = natRow{nat: n, seen: r.monoNow()}
+		return n
+	}
+	kept, ok := r.natRows[*k]
+	if !ok {
+		return nil
+	}
+	kept.seen, kept.closed = r.monoNow(), false
+	r.natRows[*k] = kept
+	return kept.nat
+}
+
+// dropIntraHostDNAT removes the translation of the server side of a connection whose client, a
+// socket of this host, dialed an address that a DNAT translated, like Datadog's
+// determineConnectionIntraHost: the client side reports it. It is kept when the client address
+// is translated too. It tells whether the client socket is not known yet.
+func (r *Reader) dropIntraHostDNAT(s *ebpf.Stat) (clientUnknown bool) {
+	if !serverOfDNAT(s) {
+		return false
+	}
+	if _, found := r.peers.remote(s); !found {
+		return true
+	}
+	s.NAT = nil
+	return false
+}
+
+// dropIntraHostDNATs calls dropIntraHostDNAT once the open sockets were read: a translation
+// whose client socket is still unknown is kept
+func (r *Reader) dropIntraHostDNATs(stats []*ebpf.Stat) {
+	if r.nat == nil {
+		return
+	}
+	for _, s := range stats {
+		r.dropIntraHostDNAT(s)
+	}
+}
+
+// serverOfDNAT tells whether the local address of a stat is the one a DNAT translated to, and
+// not its remote address: its socket is then the server side of the translated connection
+func serverOfDNAT(s *ebpf.Stat) bool {
+	if s.NAT == nil {
+		return false
+	}
+	pre, socket := &s.NAT.Pre, &s.CommonAttrs
+	return (pre.SrcAddr != socket.SrcAddr || pre.SrcPort != socket.SrcPort) &&
+		pre.DstAddr == socket.DstAddr && pre.DstPort == socket.DstPort
+}
+
+// closeNATRow keeps the translation of a closed row for closedNATRetention
+func (r *Reader) closeNATRow(k *key) {
+	if kept, ok := r.natRows[*k]; ok {
+		kept.seen, kept.closed = r.monoNow(), true
+		r.natRows[*k] = kept
+	}
+}
+
+// pruneNATRows forgets the translations of the rows not read since deltaRetention, and of the
+// rows closed since closedNATRetention
+func (r *Reader) pruneNATRows(now time.Duration) {
+	for k, n := range r.natRows {
+		if n.seen < now-deltaRetention || n.closed && n.seen < now-closedNATRetention {
+			delete(r.natRows, k)
+		}
+	}
 }
 
 // roleUsed tells whether the role of the rows is reported, or merges the closed connections
@@ -307,8 +441,9 @@ func (r *Reader) roleUsed() bool {
 }
 
 // connectionRole returns the role of a row when it is used. A TCP connection opened before OBI
-// started has no handshake role: like Datadog, it is the server side when its local port is
-// listening. A UDP row takes its role from the bound ports, which udpRole corrects.
+// started has no handshake role: like Datadog's determine_connection_direction, it is the server
+// side when its local port is listening, else the client. A UDP row takes its role from the bound
+// ports, which udpRole corrects.
 func (r *Reader) connectionRole(k *key, v *row) uint8 {
 	role := uint8(v.Role)
 	if !r.roleUsed() {
@@ -320,15 +455,10 @@ func (r *Reader) connectionRole(k *key, v *row) uint8 {
 	if ebpf.NetworkTCPHandshakeRoleCode(role) != ebpf.CodeRoleUnknown || k.Protocol != syscall.IPPROTO_TCP {
 		return role
 	}
-	listening, known := r.tcpSockets.isListening(k, v.Pid)
-	switch {
-	case !known:
-		return role
-	case listening:
+	if r.tcpSockets.isListening(k, v.Pid) {
 		return uint8(ebpf.CodeRoleServer)
-	default:
-		return uint8(ebpf.CodeRoleClient)
 	}
+	return uint8(ebpf.CodeRoleClient)
 }
 
 // udpRole returns the role of a UDP row, corrected like Datadog's fixIncomingConnectionDirection
@@ -387,7 +517,7 @@ func (r *Reader) roleNeedsAllRows(k *key, v *row) bool {
 func (r *Reader) resolvePending(stats []*ebpf.Stat) []*ebpf.Stat {
 	pending := r.pendingClosed[:0]
 	for _, s := range r.pendingClosed {
-		if r.findRemote(s) {
+		if !r.dropIntraHostDNAT(s) && r.findRemote(s) {
 			stats = append(stats, s)
 		} else {
 			pending = append(pending, s)
@@ -405,6 +535,8 @@ func (r *Reader) flushClosed(stats []*ebpf.Stat, now time.Duration) []*ebpf.Stat
 	if r.rollup != nil {
 		closed = r.rollup.flush(closed)
 	}
+	r.dropIntraHostDNATs(stats)
+	r.dropIntraHostDNATs(closed)
 	if !r.resolveRemote {
 		if r.peers != nil {
 			r.peers.prune(now)
@@ -456,7 +588,9 @@ func (r *Reader) findRemote(s *ebpf.Stat) bool {
 // this host
 func (r *Reader) remote(s *ebpf.Stat) peerEntry {
 	peer, found := r.peers.remote(s)
-	s.SameHost = found || sameHostAddrs(s.CommonAttrs.SrcAddr, s.CommonAttrs.DstAddr)
+	// like Datadog, a translation to a loopback address stays on this host
+	s.SameHost = found || sameHostAddrs(s.CommonAttrs.SrcAddr, s.CommonAttrs.DstAddr) ||
+		s.NAT != nil && net.IP(s.NAT.Post.DstAddr[:]).IsLoopback()
 	return peer
 }
 
@@ -503,6 +637,7 @@ func (r *Reader) readMap(stats []*ebpf.Stat) []*ebpf.Stat {
 		stats = r.appendClosedStats(stats, k, v, r.deltas.closed(k, rowTotals(v), now))
 	}
 	r.deltas.prune(now - deltaRetention)
+	r.pruneNATRows(now)
 	stats = r.flushClosed(stats, now)
 
 	r.reportCounters(rowCount)

@@ -24,6 +24,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/export/prom"
 	"go.opentelemetry.io/obi/pkg/internal/pipe"
+	"go.opentelemetry.io/obi/pkg/internal/procmeta"
 	"go.opentelemetry.io/obi/pkg/internal/statsolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
@@ -82,6 +83,9 @@ func TestFilter(t *testing.T) {
 				},
 				attributes.StatTCPOutOfOrderPackets.Section: attributes.InclusionLists{
 					Include: []string{"obi_ip", "dst_port", "src_port"},
+				},
+				attributes.StatTCPCongestionEvents.Section: attributes.InclusionLists{
+					Include: []string{"obi_ip", "dst_port", "network_tcp_congestion_event", "network_tcp_handshake_role"},
 				},
 				attributes.StatDNSLookupDuration.Section: attributes.InclusionLists{
 					Include: []string{"obi_ip", "error_type", "dns_question_name", "dns_question_type"},
@@ -183,6 +187,12 @@ func TestFilter(t *testing.T) {
 	rowRtt.TCPRtt.Merged = []uint32{200, 300}
 	socketTraffic <- []*ebpf.Stat{rowSuccessful, rowRetransmits, rowRtt}
 
+	// the congestion events are read from the rows only, one stat per kind
+	socketTraffic <- []*ebpf.Stat{
+		fakeCongestionEventRecord(900, uint8(ebpf.CodeCongestionEventRTO), 3),
+		fakeCongestionEventRecord(900, uint8(ebpf.CodeCongestionEventRecovery), 1),
+	}
+
 	// a TCP close only adds packets: its zero bytes must not create a series
 	socketTraffic <- []*ebpf.Stat{
 		fakeSocketTrafficRecord(80, ebpf.SocketTraffic{Transport: syscall.IPPROTO_TCP, Direction: uint8(ebpf.CodeDirectionTransmit), Role: uint8(ebpf.CodeRoleClient), Bytes: 76, Packets: 2}),
@@ -216,6 +226,7 @@ func TestFilter(t *testing.T) {
 				"obi_stat_tcp_ecn_ce_packets_total",
 				"obi_stat_tcp_reordering_events_total",
 				"obi_stat_tcp_out_of_order_packets_total",
+				"obi_stat_tcp_congestion_events_total",
 				"obi_stat_dns_lookup_duration_seconds_count",
 				"obi_stat_bytes_total",
 				"obi_stat_packets_total",
@@ -243,6 +254,8 @@ func TestFilter(t *testing.T) {
 			{Name: "obi_stat_tcp_flow_control_events_total", Value: 2, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "400", "src_port": "300", "network_tcp_flow_control_event": "zero_window", "network_tcp_handshake_role": "client"}},
 			{Name: "obi_stat_tcp_ecn_ce_packets_total", Value: 4, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "600", "src_port": "500", "network_tcp_handshake_role": "server"}},
 			{Name: "obi_stat_tcp_out_of_order_packets_total", Value: 2, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "600", "src_port": "500"}},
+			{Name: "obi_stat_tcp_congestion_events_total", Value: 3, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "900", "network_tcp_congestion_event": "rto", "network_tcp_handshake_role": "client"}},
+			{Name: "obi_stat_tcp_congestion_events_total", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "900", "network_tcp_congestion_event": "recovery", "network_tcp_handshake_role": "client"}},
 			{Name: "obi_stat_dns_lookup_duration_seconds_count", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "error_type": "", "dns_question_name": "example.com", "dns_question_type": "A"}},
 			{Name: "obi_stat_dns_lookup_duration_seconds_count", Value: 2, Labels: map[string]string{"obi_ip": "1.2.3.4", "error_type": "NXDomain", "dns_question_name": "nope.invalid", "dns_question_type": "AAAA"}},
 			{Name: "obi_stat_dns_lookup_duration_seconds_count", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "error_type": "timeout", "dns_question_name": "example.com", "dns_question_type": "A"}},
@@ -345,6 +358,15 @@ func fakeFlowControlRecord(srcPort, dstPort uint16, role uint8) *ebpf.Stat {
 	}
 }
 
+func fakeCongestionEventRecord(dstPort uint16, event uint8, count uint64) *ebpf.Stat {
+	return &ebpf.Stat{
+		Type:               ebpf.StatTypeTCPCongestionEvent,
+		TCPCongestionEvent: &ebpf.TCPCongestionEvent{Event: event, Role: uint8(ebpf.CodeRoleClient)},
+		Count:              count,
+		CommonAttrs:        pipe.CommonAttrs{SrcPort: 40000, DstPort: dstPort},
+	}
+}
+
 func fakeCongestionRecord(srcPort, dstPort uint16, delta ebpf.TCPCongestion) *ebpf.Stat {
 	return &ebpf.Stat{
 		Type:          ebpf.StatTypeTCPCongestion,
@@ -444,4 +466,8 @@ func TestStatProcesses(t *testing.T) {
 	src, dst = statProcesses(false, true)(traffic)
 	assert.Zero(t, src.Pid, "the source side is not selected")
 	assert.Equal(t, uint32(6), dst.Pid)
+
+	lookup := &ebpf.Stat{Owner: ebpf.SockOwner{Pid: 1, DstContainerID: "c-coredns"}}
+	_, dst = statProcesses(true, true)(lookup)
+	assert.Equal(t, procmeta.Process{ContainerID: "c-coredns"}, dst, "a DNS server found from its container address")
 }

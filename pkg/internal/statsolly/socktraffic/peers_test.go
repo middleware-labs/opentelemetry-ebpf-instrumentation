@@ -4,6 +4,7 @@
 package socktraffic
 
 import (
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/pkg/internal/pipe"
 	"go.opentelemetry.io/obi/pkg/internal/statsolly/ebpf"
 )
 
@@ -194,4 +196,40 @@ func TestReaderRetriesTheRemoteProcessOnce(t *testing.T) {
 	stats = r.readMap(nil)
 	require.Len(t, stats, 1)
 	assert.Zero(t, stats[0].SocketTraffic.DstPid)
+}
+
+func TestLocalOwners(t *testing.T) {
+	now := time.Hour
+	r, _ := testReader(t, &fakeMap{batchLen: 10}, &now)
+	owners := r.LocalOwners()
+	require.NotNil(t, r.peers, "the reader indexes its sockets for the DNS lookups")
+
+	client := udpConnKey("10.0.0.1", 40000, "10.0.0.53", 53)
+	noProcess := udpConnKey("10.0.0.1", 40001, "10.0.0.53", 53)
+	clientAddr := pipe.IPAddr(client.Conn.S_addr)
+
+	_, found := owners.Find(clientAddr, 40000, syscall.IPPROTO_UDP)
+	assert.False(t, found, "not read yet")
+
+	// the reader writes the index while the DNS tracer reads it
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		for range 1000 {
+			r.peers.add(&client, &row{Pid: 100, ExeName: [16]uint8{'d', 'i', 'g'}, CgroupId: 7}, now)
+			r.peers.add(&noProcess, &row{}, now)
+			r.peers.prune(now)
+		}
+	})
+	for range 1000 {
+		owners.Find(clientAddr, 40000, syscall.IPPROTO_UDP)
+	}
+	wg.Wait()
+
+	owner, found := owners.Find(clientAddr, 40000, syscall.IPPROTO_UDP)
+	require.True(t, found)
+	assert.Equal(t, Owner{Pid: 100, ExecName: "dig", CgroupID: 7}, owner)
+	_, found = owners.Find(clientAddr, 40000, syscall.IPPROTO_TCP)
+	assert.False(t, found, "another transport")
+	_, found = owners.Find(clientAddr, 40001, syscall.IPPROTO_UDP)
+	assert.False(t, found, "a socket without process waits for one")
 }

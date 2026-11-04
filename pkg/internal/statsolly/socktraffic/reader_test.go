@@ -5,6 +5,7 @@ package socktraffic
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"log/slog"
 	"net"
@@ -20,6 +21,7 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/internal/pipe"
 	"go.opentelemetry.io/obi/pkg/internal/statsolly/ebpf"
@@ -303,7 +305,8 @@ func TestReaderServerPort(t *testing.T) {
 		// opened before OBI started: no handshake role
 		{"local port listening: server", server, row{Pid: 300}, 5432},
 		{"local port not listening: client", client, row{Pid: 300}, 5432},
-		{"process ended: unknown", server, row{Pid: 555}, 0},
+		// like Datadog, a port not found listening is the client's
+		{"ports unreadable: client", server, row{Pid: 555}, 41001},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			r.tcpSockets.reset()
@@ -354,7 +357,7 @@ func TestReaderRole(t *testing.T) {
 		// opened before OBI started: no handshake role
 		{"local port listening: server", server, row{Pid: 300}, ebpf.CodeRoleServer},
 		{"local port not listening: client", client, row{Pid: 300}, ebpf.CodeRoleClient},
-		{"process ended: unknown", server, row{Pid: 555}, ebpf.CodeRoleUnknown},
+		{"ports unreadable: client", server, row{Pid: 555}, ebpf.CodeRoleClient},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			r.tcpSockets.reset()
@@ -457,4 +460,346 @@ func TestReaderRollupTakesTheCorrectedRole(t *testing.T) {
 	assert.Equal(t, uint16(8125), stats[0].CommonAttrs.SrcPort)
 	assert.Zero(t, stats[0].CommonAttrs.DstPort, "the client ports are dropped")
 	assert.Equal(t, uint64(20), stats[0].SocketTraffic.Bytes)
+}
+
+func TestReaderRoleOfAProcessThatEnded(t *testing.T) {
+	now := time.Hour
+	r, _ := testReader(t, &fakeMap{batchLen: 10}, &now)
+	procRoot := t.TempDir()
+	r.tcpSockets = newTCPSockets(procRoot)
+	r.emit.Role = true
+	// postgres listens on 5432 in network namespace 100 when OBI starts
+	writeProcNet(t, procRoot, 300, "tcp", procNetListenLine(net.ParseIP("0.0.0.0"), 5432))
+	require.NoError(t, os.MkdirAll(filepath.Join(procRoot, "300", "ns"), 0o755))
+	require.NoError(t, os.Symlink("net:[100]", filepath.Join(procRoot, "300", "ns", "net")))
+	require.NoError(t, r.tcpSockets.seedListening())
+	// then it ends with its listener, and its connections opened before OBI started close. The
+	// network namespace is read from a client that is still running.
+	require.NoError(t, os.RemoveAll(filepath.Join(procRoot, "300")))
+	writeProcNet(t, procRoot, 301, "tcp")
+
+	server := tcpConnKey("10.0.0.2", 5432, "10.0.0.1", 41001)
+	client := tcpConnKey("10.0.0.1", 41001, "10.0.0.2", 5432)
+	server.Netns, client.Netns = 100, 100
+	otherNetns := server
+	otherNetns.Netns = 200
+	for _, tt := range []struct {
+		name string
+		k    key
+		want ebpf.NetworkTCPHandshakeRoleCode
+	}{
+		{"listening when OBI started: server", server, ebpf.CodeRoleServer},
+		{"not listening when OBI started: client", client, ebpf.CodeRoleClient},
+		{"network namespace without process when OBI started: the ports listening now", otherNetns, ebpf.CodeRoleClient},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			r.tcpSockets.reset()
+			// the client reads its network namespace first
+			r.tcpSockets.isOpen(&tt.k, 301)
+			assert.Equal(t, uint8(tt.want), r.connectionRole(&tt.k, &row{Pid: 300}))
+		})
+	}
+}
+
+// fakeNAT has the address translation of the rows by their tuple
+type fakeNAT map[key]*ebpf.NAT
+
+func (f fakeNAT) NAT(k *key, _ bool) *ebpf.NAT { return f[*k] }
+
+func (fakeNAT) Run(context.Context) {}
+
+func setNAT(r *Reader, nat fakeNAT) {
+	r.nat, r.natRows = nat, map[key]natRow{}
+}
+
+func endpointsOf(src string, srcPort uint16, dst string, dstPort uint16) ebpf.Endpoints {
+	k := tcpConnKey(src, srcPort, dst, dstPort)
+	return ebpf.Endpoints{SrcAddr: k.Conn.S_addr, DstAddr: k.Conn.D_addr, SrcPort: srcPort, DstPort: dstPort}
+}
+
+func attrValue(t *testing.T, s *ebpf.Stat, name attr.Name) string {
+	t.Helper()
+	getter, ok := ebpf.StatStringGetters(name)
+	require.True(t, ok)
+	return getter(s)
+}
+
+func TestReaderNAT(t *testing.T) {
+	now := time.Hour
+	r, _ := testReader(t, &fakeMap{batchLen: 10}, &now)
+	r.emit.ServerPort = true
+	// a container client masqueraded to the host address and port
+	client := tcpConnKey("172.29.0.20", 40000, "10.66.1.164", 80)
+	setNAT(r, fakeNAT{client: &ebpf.NAT{
+		Pre:  endpointsOf("172.29.0.20", 40000, "10.66.1.164", 80),
+		Post: endpointsOf("139.59.42.32", 41000, "10.66.1.164", 80),
+	}})
+
+	v := row{Role: ebpf.StatsTcpHandshakeRoleRoleClient}
+	stats := r.rowStats(nil, &client, &v, r.connectionRole(&client, &v), totals{txBytes: 10, rxBytes: 5}, false)
+	require.Len(t, stats, 2)
+	for _, s := range stats {
+		assert.Equal(t, "139.59.42.32", attrValue(t, s, attr.SrcAddress), "after NAT")
+		assert.Equal(t, "41000", attrValue(t, s, attr.SrcPort))
+		assert.Equal(t, "172.29.0.20", attrValue(t, s, attr.SrcPreNATAddress), "the socket")
+		assert.Equal(t, "10.66.1.164", attrValue(t, s, attr.DstPreNATAddress))
+		assert.Equal(t, uint16(80), s.ServerPort)
+		assert.Equal(t, "172.29.0.20", s.CommonAttrs.SrcAddr.IP().String(), "the names are looked up by the socket")
+	}
+
+	other := tcpConnKey("172.29.0.20", 40001, "172.29.0.10", 8080)
+	stats = r.rowStats(nil, &other, &v, r.connectionRole(&other, &v), totals{txBytes: 10}, false)
+	require.Len(t, stats, 1)
+	assert.Nil(t, stats[0].NAT)
+	assert.Equal(t, "172.29.0.20", attrValue(t, stats[0], attr.SrcAddress))
+	assert.Empty(t, attrValue(t, stats[0], attr.SrcPreNATAddress), "no NAT")
+	assert.Equal(t, uint16(8080), stats[0].ServerPort)
+}
+
+func TestReaderRollupKeepsTheNAT(t *testing.T) {
+	now := time.Hour
+	r, _ := testReader(t, &fakeMap{batchLen: 10}, &now)
+	r.rollup = newConnectionRollup()
+	nat := fakeNAT{}
+	setNAT(r, nat)
+
+	// two closed connections of a masqueraded client, with their translated ports
+	for i, port := range []uint16{40000, 40001} {
+		k := tcpConnKey("172.29.0.20", port, "10.66.1.164", 80)
+		nat[k] = &ebpf.NAT{
+			Pre:  endpointsOf("172.29.0.20", port, "10.66.1.164", 80),
+			Post: endpointsOf("139.59.42.32", 41000+uint16(i), "10.66.1.164", 80),
+		}
+		r.appendClosedStats(nil, &k, &row{Role: ebpf.StatsTcpHandshakeRoleRoleClient, TxBytes: 10}, totals{txBytes: 10, txPackets: 1})
+	}
+	stats := r.flushClosed(nil, now)
+	require.Len(t, stats, 1, "merged by the server")
+	assert.Equal(t, uint64(20), stats[0].SocketTraffic.Bytes)
+	assert.Equal(t, "139.59.42.32", attrValue(t, stats[0], attr.SrcAddress))
+	assert.Equal(t, "0", attrValue(t, stats[0], attr.SrcPort), "the client ports are dropped")
+	assert.Equal(t, "172.29.0.20", attrValue(t, stats[0], attr.SrcPreNATAddress))
+}
+
+func TestReaderFindsTheBackendOfAService(t *testing.T) {
+	now := time.Hour
+	m := &fakeMap{batchLen: 10}
+	r, _ := testReader(t, m, &now)
+	r.peers, r.resolveRemote = newPeerIndex(time.Minute), true
+
+	// a client of a service address, translated to a backend of this host
+	client := tcpConnKey("10.244.0.5", 50000, "10.96.0.10", 80)
+	backend := tcpConnKey("10.244.1.7", 8080, "10.244.0.5", 50000)
+	setNAT(r, fakeNAT{
+		client: &ebpf.NAT{
+			Pre:  endpointsOf("10.244.0.5", 50000, "10.96.0.10", 80),
+			Post: endpointsOf("10.244.0.5", 50000, "10.244.1.7", 8080),
+		},
+		backend: &ebpf.NAT{
+			Pre:  endpointsOf("10.96.0.10", 80, "10.244.0.5", 50000),
+			Post: endpointsOf("10.244.1.7", 8080, "10.244.0.5", 50000),
+		},
+	})
+	m.set(client, row{TxBytes: 10, Pid: 100, Role: ebpf.StatsTcpHandshakeRoleRoleClient, LastUpdateNs: uint64(now)})
+	m.set(backend, row{RxBytes: 10, Pid: 200, Role: ebpf.StatsTcpHandshakeRoleRoleServer, LastUpdateNs: uint64(now)})
+
+	stats := r.readMap(nil)
+	require.Len(t, stats, 2)
+	for _, s := range stats {
+		want := map[uint32]uint32{100: 200, 200: 100}[s.SocketTraffic.Pid]
+		assert.Equal(t, want, s.SocketTraffic.DstPid, "pid %d", s.SocketTraffic.Pid)
+		assert.True(t, s.SameHost)
+		if s.SocketTraffic.Pid == 100 {
+			assert.Equal(t, "10.96.0.10", attrValue(t, s, attr.DstPreNATAddress), "the client reports the translation")
+		} else {
+			assert.Nil(t, s.NAT, "like Datadog, not the server side")
+		}
+	}
+}
+
+func TestReaderRollupFindsTheClientOfABackend(t *testing.T) {
+	now := time.Hour
+	r, _ := testReader(t, &fakeMap{batchLen: 10}, &now)
+	r.rollup, r.peers, r.resolveRemote = newConnectionRollup(), newPeerIndex(time.Minute), true
+	client := tcpConnKey("10.244.0.5", 50000, "10.96.0.10", 80)
+	backend := tcpConnKey("10.244.1.7", 8080, "10.244.0.5", 50000)
+	setNAT(r, fakeNAT{
+		client: &ebpf.NAT{
+			Pre:  endpointsOf("10.244.0.5", 50000, "10.96.0.10", 80),
+			Post: endpointsOf("10.244.0.5", 50000, "10.244.1.7", 8080),
+		},
+		backend: &ebpf.NAT{
+			Pre:  endpointsOf("10.96.0.10", 80, "10.244.0.5", 50000),
+			Post: endpointsOf("10.244.1.7", 8080, "10.244.0.5", 50000),
+		},
+	})
+	clientRow := row{Pid: 100, Role: ebpf.StatsTcpHandshakeRoleRoleClient, TxBytes: 10, LastUpdateNs: uint64(now)}
+	backendRow := row{Pid: 200, Role: ebpf.StatsTcpHandshakeRoleRoleServer, RxBytes: 10, LastUpdateNs: uint64(now)}
+	r.peers.add(&client, &clientRow, now)
+	r.peers.add(&backend, &backendRow, now)
+	r.appendClosedStats(nil, &client, &clientRow, totals{txBytes: 10})
+	r.appendClosedStats(nil, &backend, &backendRow, totals{rxBytes: 10})
+
+	stats := r.flushClosed(nil, now)
+	require.Len(t, stats, 2)
+	for _, s := range stats {
+		if s.SocketTraffic.Pid == 200 {
+			assert.Equal(t, "0", attrValue(t, s, attr.DstPort), "rolled up")
+			assert.Nil(t, s.NAT)
+			assert.Equal(t, uint32(100), s.SocketTraffic.DstPid, "the client of the service address")
+			assert.True(t, s.SameHost)
+		}
+	}
+}
+
+func TestReaderDropsTheNATOfTheServerSideOfALocalClient(t *testing.T) {
+	now := time.Hour
+	m := &fakeMap{batchLen: 10}
+	r, _ := testReader(t, m, &now)
+	r.peers = newPeerIndex(time.Minute)
+	nat := fakeNAT{}
+	setNAT(r, nat)
+	serverOf := func(client string, port uint16, post string) key {
+		k := tcpConnKey("10.244.1.7", 8080, post, port)
+		nat[k] = &ebpf.NAT{
+			Pre:  endpointsOf("10.96.0.10", 80, client, port),
+			Post: endpointsOf("10.244.1.7", 8080, post, port),
+		}
+		return k
+	}
+	server := row{Role: ebpf.StatsTcpHandshakeRoleRoleServer, RxBytes: 10}
+
+	// the server side closes before its client on this host
+	local := serverOf("10.244.0.5", 50000, "10.244.0.5")
+	assert.Empty(t, r.appendClosedStats(nil, &local, &server, totals{rxBytes: 10}), "waits for its client")
+	client := tcpConnKey("10.244.0.5", 50000, "10.96.0.10", 80)
+	r.peers.add(&client, &row{}, now)
+
+	// a client of another host, and a client of this host masqueraded on the way
+	remote := serverOf("10.244.2.9", 50001, "10.244.2.9")
+	masqueraded := serverOf("10.244.0.5", 50002, "10.244.0.1")
+	masqueradedClient := tcpConnKey("10.244.0.5", 50002, "10.96.0.10", 80)
+	r.peers.add(&masqueradedClient, &row{}, now)
+	m.set(remote, row{Role: ebpf.StatsTcpHandshakeRoleRoleServer, RxBytes: 10, LastUpdateNs: uint64(now)})
+	m.set(masqueraded, row{Role: ebpf.StatsTcpHandshakeRoleRoleServer, RxBytes: 10, LastUpdateNs: uint64(now)})
+
+	stats := r.readMap(nil)
+	require.Len(t, stats, 3)
+	for _, s := range stats {
+		switch s.CommonAttrs.DstPort {
+		case 50000:
+			assert.Nil(t, s.NAT, "the client on this host reports the translation")
+		case 50001:
+			assert.Equal(t, "10.96.0.10", attrValue(t, s, attr.SrcPreNATAddress), "no client on this host")
+		case 50002:
+			assert.Equal(t, "10.244.0.5", attrValue(t, s, attr.DstPreNATAddress), "the client address is translated too")
+		}
+	}
+}
+
+func TestReaderKeepsTheNATOfARow(t *testing.T) {
+	now := time.Hour
+	r, _ := testReader(t, &fakeMap{batchLen: 10}, &now)
+	nat := fakeNAT{}
+	setNAT(r, nat)
+
+	client := tcpConnKey("172.29.0.20", 40000, "10.66.1.164", 80)
+	translation := &ebpf.NAT{
+		Pre:  endpointsOf("172.29.0.20", 40000, "10.66.1.164", 80),
+		Post: endpointsOf("139.59.42.32", 40000, "10.66.1.164", 80),
+	}
+	nat[client] = translation
+	v := row{Role: ebpf.StatsTcpHandshakeRoleRoleClient, TxBytes: 10}
+	role := r.connectionRole(&client, &v)
+	stats := r.rowStats(nil, &client, &v, role, totals{txBytes: 10}, false)
+	require.Len(t, stats, 1)
+	assert.Same(t, translation, stats[0].NAT)
+
+	// the churn of the other connections evicts its conntrack entry
+	delete(nat, client)
+	stats = r.rowStats(nil, &client, &v, role, totals{txBytes: 10}, false)
+	require.Len(t, stats, 1)
+	assert.Same(t, translation, stats[0].NAT, "kept while the row lives")
+
+	// a new connection with the same addresses reuses the conntrack entry, which inserts none
+	r.appendClosedStats(nil, &client, &v, totals{txBytes: 10})
+	stats = r.rowStats(nil, &client, &v, role, totals{txBytes: 10}, false)
+	require.Len(t, stats, 1)
+	assert.Same(t, translation, stats[0].NAT, "kept for the next connection of the addresses")
+
+	r.appendClosedStats(nil, &client, &v, totals{txBytes: 10})
+	now += closedNATRetention + time.Second
+	r.pruneNATRows(now)
+	assert.Empty(t, r.natRows, "forgotten once its conntrack entry expired")
+
+	nat[client] = translation
+	r.rowStats(nil, &client, &v, role, totals{txBytes: 10}, false)
+	now += closedNATRetention + time.Second
+	r.pruneNATRows(now)
+	assert.Len(t, r.natRows, 1, "an open row keeps it longer")
+	now += deltaRetention
+	r.pruneNATRows(now)
+	assert.Empty(t, r.natRows, "forgotten when the row is not read any more")
+}
+
+func TestReaderFailedConnections(t *testing.T) {
+	now := time.Hour
+	m := &fakeMap{batchLen: 10}
+	r, _ := testReader(t, m, &now)
+	r.emit = Emit{TCPFailed: true}
+	r.peers, r.resolveRemote = newPeerIndex(time.Minute), true
+
+	// a client reset by a server of this host, and a refused connect to a port nobody listens on
+	reset := tcpConnKey("10.0.0.1", 40000, "10.0.0.2", 8080)
+	server := tcpConnKey("10.0.0.2", 8080, "10.0.0.1", 40000)
+	refused := tcpConnKey("10.0.0.1", 40001, "10.0.0.2", 8099)
+	m.set(reset, row{
+		Pid: 100, Role: ebpf.StatsTcpHandshakeRoleRoleClient, Established: 1, TxBytes: 10,
+		FailReason: ebpf.StatsTcpFailReasonReasonConnectionReset, Failures: 1, LastUpdateNs: uint64(now),
+	})
+	m.set(server, row{Pid: 200, Role: ebpf.StatsTcpHandshakeRoleRoleServer, Established: 1, RxBytes: 10, LastUpdateNs: uint64(now)})
+	m.set(refused, row{
+		Pid: 100, Role: ebpf.StatsTcpHandshakeRoleRoleClient, TxPackets: 1, RxPackets: 1,
+		FailReason: ebpf.StatsTcpFailReasonReasonConnectionRefused, Failures: 1, LastUpdateNs: uint64(now),
+	})
+
+	stats := r.readMap(nil)
+	require.Len(t, stats, 2)
+	for _, s := range stats {
+		require.Equal(t, ebpf.StatTypeTCPFailedConnection, s.Type)
+		switch ebpf.TCPFailReasonTypeCode(s.TCPFailedConnection.Reason) {
+		case ebpf.CodeConnectionReset:
+			assert.True(t, s.SameHost, "like Datadog, the server is on this host")
+			assert.Equal(t, uint32(200), s.Owner.DstPid)
+		case ebpf.CodeConnectionRefused:
+			assert.False(t, s.SameHost, "like Datadog, nothing on this host has the remote port")
+			assert.Equal(t, uint32(100), s.Owner.Pid)
+		default:
+			t.Fatalf("unexpected reason %d", s.TCPFailedConnection.Reason)
+		}
+	}
+}
+
+func TestReaderRollupMergesTheFailedConnectionsByReason(t *testing.T) {
+	now := time.Hour
+	r, _ := testReader(t, &fakeMap{batchLen: 10}, &now)
+	r.emit, r.rollup = Emit{TCPFailed: true}, newConnectionRollup()
+	failedRow := func(reason ebpf.StatsTcpFailReason) row {
+		return row{Pid: 100, Role: ebpf.StatsTcpHandshakeRoleRoleClient, FailReason: reason, Failures: 1}
+	}
+	for port, reason := range map[uint16]ebpf.StatsTcpFailReason{
+		40000: ebpf.StatsTcpFailReasonReasonConnectionRefused,
+		40001: ebpf.StatsTcpFailReasonReasonConnectionRefused,
+		40002: ebpf.StatsTcpFailReasonReasonTimedOut,
+	} {
+		k := tcpConnKey("10.0.0.1", port, "10.0.0.2", 8099)
+		v := failedRow(reason)
+		r.appendClosedStats(nil, &k, &v, totals{failures: 1})
+	}
+
+	counts := map[ebpf.TCPFailReasonTypeCode]uint64{}
+	for _, s := range r.flushClosed(nil, now) {
+		assert.Equal(t, "0", attrValue(t, s, attr.SrcPort), "rolled up")
+		counts[ebpf.TCPFailReasonTypeCode(s.TCPFailedConnection.Reason)] += s.Events()
+	}
+	assert.Equal(t, map[ebpf.TCPFailReasonTypeCode]uint64{ebpf.CodeConnectionRefused: 2, ebpf.CodeTimedOut: 1}, counts)
 }

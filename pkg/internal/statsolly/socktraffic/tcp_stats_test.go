@@ -27,7 +27,7 @@ func byType(stats []*ebpf.Stat) map[ebpf.StatType][]*ebpf.Stat {
 
 func TestEmitFor(t *testing.T) {
 	features := export.FeatureStatsTCPRtt | export.FeatureStatsSocketBytes | export.FeatureStatsTCPFailedConnections
-	assert.Equal(t, Emit{Traffic: true, TCPRtt: true}, EmitFor(&features, true))
+	assert.Equal(t, Emit{Traffic: true, TCPRtt: true, TCPFailed: true}, EmitFor(&features, true))
 	assert.Equal(t, Emit{Traffic: true}, EmitFor(&features, false), "the TCP metrics are events")
 }
 
@@ -39,7 +39,7 @@ func TestAppendTCPStats(t *testing.T) {
 	}
 	delta := totals{
 		txBytes: 76, rxBytes: 853, established: 1, retransFast: 2, retransTimeout: 1, zeroWindow: 3,
-		deliveredCE: 4, reordSeen: 5, rcvOOOPack: 6,
+		rto: 7, recovery: 8, deliveredCE: 4, reordSeen: 5, rcvOOOPack: 6,
 	}
 
 	stats := byType(allTCP.appendTCPStats(nil, &k, &r, delta, false))
@@ -57,12 +57,14 @@ func TestAppendTCPStats(t *testing.T) {
 	retransmits := map[uint8]uint64{}
 	for _, s := range stats[ebpf.StatTypeTCPRetransmit] {
 		retransmits[s.TCPRetransmitType] = s.Events()
+		assert.Equal(t, uint8(ebpf.CodeRoleClient), s.TCPRetransmitRole)
 	}
 	assert.Equal(t, map[uint8]uint64{uint8(ebpf.CodeRetransmitFast): 2, uint8(ebpf.CodeRetransmitTimeout): 1}, retransmits)
 
 	io := map[uint8]uint64{}
 	for _, s := range stats[ebpf.StatTypeTCPIo] {
 		io[s.TCPIo.Direction] = s.TCPIo.Bytes
+		assert.Equal(t, uint8(ebpf.CodeRoleClient), s.TCPIo.Role)
 	}
 	assert.Equal(t, map[uint8]uint64{uint8(ebpf.CodeDirectionTransmit): 76, uint8(ebpf.CodeDirectionReceive): 853}, io)
 
@@ -71,6 +73,72 @@ func TestAppendTCPStats(t *testing.T) {
 	require.Len(t, stats[ebpf.StatTypeTCPCongestion], 1)
 	assert.Equal(t, ebpf.TCPCongestion{DeliveredCE: 4, ReordSeen: 5, RcvOOOPack: 6, Role: uint8(ebpf.CodeRoleClient)},
 		*stats[ebpf.StatTypeTCPCongestion][0].TCPCongestion)
+
+	congestionEvents := map[uint8]uint64{}
+	for _, s := range stats[ebpf.StatTypeTCPCongestionEvent] {
+		congestionEvents[s.TCPCongestionEvent.Event] = s.Events()
+		assert.Equal(t, uint8(ebpf.CodeRoleClient), s.TCPCongestionEvent.Role)
+	}
+	assert.Equal(t, map[uint8]uint64{uint8(ebpf.CodeCongestionEventRTO): 7, uint8(ebpf.CodeCongestionEventRecovery): 8},
+		congestionEvents)
+}
+
+func TestAppendTCPStatsFailures(t *testing.T) {
+	k := tcpConnKey("10.0.0.1", 40000, "10.0.0.2", 8099)
+
+	// a refused connect: its row was created at its close, it has no connection
+	refused := row{
+		Role: ebpf.StatsTcpHandshakeRole(ebpf.CodeRoleClient), TxPackets: 1, RxPackets: 1,
+		FailReason: ebpf.StatsTcpFailReasonReasonConnectionRefused, Failures: 1,
+	}
+	stats := byType(allTCP.appendTCPStats(nil, &k, &refused, totals{txPackets: 1, rxPackets: 1, failures: 1}, true))
+	require.Len(t, stats[ebpf.StatTypeTCPFailedConnection], 1)
+	failed := stats[ebpf.StatTypeTCPFailedConnection][0]
+	assert.Equal(t, uint64(1), failed.Events())
+	assert.Equal(t, ebpf.TCPFailedConnection{
+		Reason: uint8(ebpf.CodeConnectionRefused), Role: uint8(ebpf.CodeRoleClient),
+	}, *failed.TCPFailedConnection)
+	assert.Equal(t, uint16(8099), failed.CommonAttrs.DstPort)
+	require.Len(t, stats[ebpf.StatTypeTCPClosedConnection], 1, "like Datadog, a failed attempt is closed")
+	assert.Equal(t, uint64(1), stats[ebpf.StatTypeTCPClosedConnection][0].Events())
+	assert.Empty(t, stats[ebpf.StatTypeTCPRtt])
+
+	// an established connection that got a reset: closed and failed
+	reset := row{
+		Role: ebpf.StatsTcpHandshakeRole(ebpf.CodeRoleServer), Established: 1, RxBytes: 10, SrttUs: 900,
+		FailReason: ebpf.StatsTcpFailReasonReasonConnectionReset, Failures: 1,
+	}
+	stats = byType(allTCP.appendTCPStats(nil, &k, &reset, totals{rxBytes: 10, failures: 1}, true))
+	require.Len(t, stats[ebpf.StatTypeTCPFailedConnection], 1)
+	assert.Equal(t, ebpf.TCPFailedConnection{
+		Reason: uint8(ebpf.CodeConnectionReset), Role: uint8(ebpf.CodeRoleServer),
+	}, *stats[ebpf.StatTypeTCPFailedConnection][0].TCPFailedConnection)
+	require.Len(t, stats[ebpf.StatTypeTCPClosedConnection], 1)
+	assert.Equal(t, uint64(1), stats[ebpf.StatTypeTCPClosedConnection][0].Events(), "closed once")
+
+	// a reset that came after the application closed the socket, whose row was already sent: a
+	// failure, not a new closed connection
+	lateReset := row{
+		Role:       ebpf.StatsTcpHandshakeRole(ebpf.CodeRoleClient),
+		FailReason: ebpf.StatsTcpFailReasonReasonConnectionReset, Failures: 1,
+	}
+	stats = byType(allTCP.appendTCPStats(nil, &k, &lateReset, totals{failures: 1}, true))
+	require.Len(t, stats[ebpf.StatTypeTCPFailedConnection], 1)
+	assert.Equal(t, uint8(ebpf.CodeConnectionReset), stats[ebpf.StatTypeTCPFailedConnection][0].TCPFailedConnection.Reason)
+	assert.Empty(t, stats[ebpf.StatTypeTCPClosedConnection])
+
+	// a timed out connect without bytes nor RTT: closed, still no RTT
+	timedOut := row{
+		Role: ebpf.StatsTcpHandshakeRole(ebpf.CodeRoleClient), SrttUs: 1000, RetransTimeout: 5,
+		FailReason: ebpf.StatsTcpFailReasonReasonTimedOut, Failures: 1,
+	}
+	stats = byType(allTCP.appendTCPStats(nil, &k, &timedOut, totals{retransTimeout: 5, failures: 1}, true))
+	require.Len(t, stats[ebpf.StatTypeTCPClosedConnection], 1)
+	assert.Equal(t, uint64(1), stats[ebpf.StatTypeTCPClosedConnection][0].Events())
+	assert.Empty(t, stats[ebpf.StatTypeTCPRtt], "a failed attempt has no RTT")
+
+	// read again without a new failure: not counted again
+	assert.Empty(t, allTCP.appendTCPStats(nil, &k, &reset, totals{}, false))
 }
 
 func TestAppendTCPStatsClosedAndIdle(t *testing.T) {
@@ -116,7 +184,7 @@ func TestConnectionRollupMergesTheTCPStats(t *testing.T) {
 	server := ebpf.StatsTcpHandshakeRole(ebpf.CodeRoleServer)
 	for i, port := range []uint16{40001, 40002, 40003} {
 		k := tcpConnKey("10.0.0.2", 80, "10.0.0.1", port)
-		v := row{Role: server, Pid: 9, Established: 1, SrttUs: uint32(100 * (i + 1)), RetransFast: 1}
+		v := row{Role: server, Pid: 9, Established: 1, SrttUs: uint32(100 * (i + 1)), RetransFast: 1, RtoCount: 1, RecoveryCount: 2}
 		for _, s := range allTCP.appendTCPStats(nil, &k, &v, rowTotals(&v), true) {
 			require.True(t, r.add(s, uint8(server)))
 		}
@@ -130,6 +198,13 @@ func TestConnectionRollupMergesTheTCPStats(t *testing.T) {
 	assert.Equal(t, uint64(3), stats[ebpf.StatTypeTCPClosedConnection][0].Events())
 	require.Len(t, stats[ebpf.StatTypeTCPRetransmit], 1)
 	assert.Equal(t, uint64(3), stats[ebpf.StatTypeTCPRetransmit][0].Events())
+
+	congestionEvents := map[uint8]uint64{}
+	for _, s := range stats[ebpf.StatTypeTCPCongestionEvent] {
+		congestionEvents[s.TCPCongestionEvent.Event] = s.Events()
+	}
+	assert.Equal(t, map[uint8]uint64{uint8(ebpf.CodeCongestionEventRTO): 3, uint8(ebpf.CodeCongestionEventRecovery): 6},
+		congestionEvents, "rto and recovery are not merged")
 
 	require.Len(t, stats[ebpf.StatTypeTCPRtt], 1)
 	rtt := stats[ebpf.StatTypeTCPRtt][0].TCPRtt

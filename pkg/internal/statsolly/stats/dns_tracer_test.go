@@ -5,6 +5,7 @@ package stats
 
 import (
 	"encoding/binary"
+	"net/netip"
 	"os"
 	"slices"
 	"syscall"
@@ -17,11 +18,13 @@ import (
 	"golang.org/x/net/dns/dnsmessage"
 
 	"go.opentelemetry.io/obi/pkg/config"
+	"go.opentelemetry.io/obi/pkg/docker"
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/internal/pipe"
 	"go.opentelemetry.io/obi/pkg/internal/statsolly/dns"
 	"go.opentelemetry.io/obi/pkg/internal/statsolly/ebpf"
+	"go.opentelemetry.io/obi/pkg/internal/statsolly/socktraffic"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
@@ -312,4 +315,155 @@ func TestDNSTracerMergesLookups(t *testing.T) {
 	assert.Equal(t, uint16(dnsmessage.RCodeNameError), batch[1].DNSLookup.RCode)
 
 	assert.Empty(t, tracer.sweep(false), "the sweep starts a new interval")
+}
+
+// fakeOwners are the local sockets known by the socket traffic reader
+type fakeOwners map[dns.Endpoint]socktraffic.Owner
+
+func (f fakeOwners) Find(addr pipe.IPAddr, port uint16, proto uint8) (socktraffic.Owner, bool) {
+	if proto != syscall.IPPROTO_UDP {
+		return socktraffic.Owner{}, false
+	}
+	o, ok := f[dns.Endpoint{Addr: addr, Port: port}]
+	return o, ok
+}
+
+func endpointOf(addr [16]uint8, port uint16) dns.Endpoint {
+	return dns.Endpoint{Addr: pipe.IPAddr(addr), Port: port}
+}
+
+// lookupFrom adds the question and the answer of a client port
+func lookupFrom(t *testing.T, tracer *DNSTracer, port uint16) {
+	t.Helper()
+	question, answer := withClientPort(port)
+	tracer.addLookup(&ringbuf.Record{RawSample: newWireDNSPacket(dnsTestQuestionTS, question, dnsMessage(t, false, dnsmessage.RCodeSuccess))})
+	tracer.addLookup(&ringbuf.Record{RawSample: newWireDNSPacket(dnsTestQuestionTS+dnsTestAnswerLatencyNS, answer, dnsMessage(t, true, dnsmessage.RCodeSuccess))})
+}
+
+func newOwnersDNSTracer(clock *time.Duration, owners fakeOwners) *DNSTracer {
+	tracer := NewDNSTracer(nil, &config.EBPFTracer{BatchLength: 100}, nil, false)
+	tracer.monoNow = func() time.Duration { return *clock }
+	tracer.owners, tracer.ownerWait = owners, 20*time.Second
+	return tracer
+}
+
+func TestDNSTracerOwnerOfAKnownClient(t *testing.T) {
+	clock := time.Duration(dnsTestQuestionTS)
+	owners := fakeOwners{
+		endpointOf(dnsClient.S_addr, 40000): {Pid: 100, ExecName: "curl", CgroupID: 7},
+		endpointOf(dnsServer.S_addr, 53):    {Pid: 200, ExecName: "coredns", CgroupID: 8},
+	}
+	tracer := newOwnersDNSTracer(&clock, owners)
+	lookupFrom(t, tracer, 40000)
+
+	batch := tracer.sweep(false)
+	require.Len(t, batch, 1)
+	assert.Equal(t, ebpf.SockOwner{
+		Pid: 100, ExecName: "curl", CgroupID: 7, DstPid: 200, DstExecName: "coredns", DstCgroupID: 8,
+	}, batch[0].Owner)
+	assert.Empty(t, tracer.waiting)
+}
+
+func TestDNSTracerWaitsForTheClientSocket(t *testing.T) {
+	clock := time.Duration(dnsTestQuestionTS)
+	owners := fakeOwners{}
+	tracer := newOwnersDNSTracer(&clock, owners)
+	lookupFrom(t, tracer, 40000)
+	assert.Empty(t, tracer.sweep(false), "the reader does not know the client socket yet")
+
+	// the reader reads the map, or the socket closes
+	clock += 10 * time.Second
+	owners[endpointOf(dnsClient.S_addr, 40000)] = socktraffic.Owner{Pid: 100, ExecName: "curl"}
+	batch := tracer.sweep(false)
+	require.Len(t, batch, 1)
+	assert.Equal(t, uint32(100), batch[0].Owner.Pid)
+	assert.Equal(t, 50*time.Millisecond, batch[0].DNSLookup.Duration)
+	assert.Empty(t, tracer.waiting)
+}
+
+func TestDNSTracerSendsWithoutProcessAfterTheWait(t *testing.T) {
+	clock := time.Duration(dnsTestQuestionTS)
+	tracer := newOwnersDNSTracer(&clock, fakeOwners{})
+	lookupFrom(t, tracer, 40000)
+
+	clock += 19 * time.Second
+	assert.Empty(t, tracer.sweep(false))
+	clock += time.Second
+	batch := tracer.sweep(false)
+	require.Len(t, batch, 1)
+	assert.Equal(t, ebpf.SockOwner{}, batch[0].Owner, "the lookup is still counted")
+}
+
+func TestDNSTracerMergesTheLookupsOfAProcess(t *testing.T) {
+	clock := time.Duration(dnsTestQuestionTS)
+	owners := fakeOwners{
+		endpointOf(dnsClient.S_addr, 40000): {Pid: 100, ExecName: "curl"},
+		endpointOf(dnsClient.S_addr, 40001): {Pid: 100, ExecName: "curl"},
+		endpointOf(dnsClient.S_addr, 40002): {Pid: 101, ExecName: "wget"},
+	}
+	tracer := newOwnersDNSTracer(&clock, owners)
+	for _, port := range []uint16{40000, 40001, 40002} {
+		lookupFrom(t, tracer, port)
+	}
+
+	batch := tracer.sweep(false)
+	require.Len(t, batch, 2, "the lookups of different processes do not merge")
+	lookups := map[uint32]int{}
+	for _, s := range batch {
+		assert.Equal(t, uint16(0), s.CommonAttrs.SrcPort, "the client port is dropped once the process is known")
+		lookups[s.Owner.Pid] = 1 + len(s.DNSLookup.Merged)
+	}
+	assert.Equal(t, map[uint32]int{100: 2, 101: 1}, lookups)
+}
+
+// fakeContainers are the addresses of the local containers
+type fakeContainers map[docker.Addr]docker.ContainerID
+
+func (f fakeContainers) ContainerID(addr docker.Addr) (docker.ContainerID, bool) {
+	addr.IP = addr.IP.Unmap()
+	id, ok := f[addr]
+	return id, ok
+}
+
+var dnsServerContainer = fakeContainers{
+	{IP: netip.MustParseAddr("10.96.0.10"), Port: 53, Proto: "udp"}: "c-coredns",
+}
+
+func TestDNSTracerContainerOfAServerWithoutSocket(t *testing.T) {
+	clock := time.Duration(dnsTestQuestionTS)
+	tracer := newOwnersDNSTracer(&clock, fakeOwners{
+		endpointOf(dnsClient.S_addr, 40000): {Pid: 100, ExecName: "curl"},
+	})
+	tracer.containers = dnsServerContainer
+	lookupFrom(t, tracer, 40000)
+
+	batch := tracer.sweep(false)
+	require.Len(t, batch, 1)
+	assert.Equal(t, ebpf.SockOwner{Pid: 100, ExecName: "curl", DstContainerID: "c-coredns"}, batch[0].Owner,
+		"the container of the server, without process")
+}
+
+func TestDNSTracerServerSocketBeforeItsContainer(t *testing.T) {
+	clock := time.Duration(dnsTestQuestionTS)
+	tracer := newOwnersDNSTracer(&clock, fakeOwners{
+		endpointOf(dnsClient.S_addr, 40000): {Pid: 100, ExecName: "curl"},
+		endpointOf(dnsServer.S_addr, 53):    {Pid: 200, ExecName: "coredns", CgroupID: 8},
+	})
+	tracer.containers = dnsServerContainer
+	lookupFrom(t, tracer, 40000)
+
+	batch := tracer.sweep(false)
+	require.Len(t, batch, 1)
+	assert.Equal(t, ebpf.SockOwner{Pid: 100, ExecName: "curl", DstPid: 200, DstExecName: "coredns", DstCgroupID: 8},
+		batch[0].Owner, "the socket gives the process too")
+}
+
+func TestDNSTracerContainerOfAServerWithoutSocketTraffic(t *testing.T) {
+	tracer := NewDNSTracer(nil, &config.EBPFTracer{BatchLength: 100}, nil, false)
+	tracer.containers = dnsServerContainer
+	lookupFrom(t, tracer, 40000)
+
+	batch := tracer.sweep(false)
+	require.Len(t, batch, 1)
+	assert.Equal(t, ebpf.SockOwner{DstContainerID: "c-coredns"}, batch[0].Owner)
 }

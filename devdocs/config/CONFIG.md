@@ -682,7 +682,7 @@ SocketTrafficConfig configures the bytes and packets counted at the TCP and UDP 
 | `stats.socket_traffic.max_entries` | `integer` | `OTEL_EBPF_STATS_SOCKET_TRAFFIC_MAX_ENTRIES` | `65536` |  |  | Is the number of open sockets with traffic that can be counted at once. It is scaled by the eBPF maps global scale factor, like the other maps. |
 | `stats.socket_traffic.protocols` | `string`[] | `OTEL_EBPF_STATS_SOCKET_TRAFFIC_PROTOCOLS` | `tcp`, `udp` |  |  | Whose sockets are counted. Accepted values: tcp, udp. The UDP hooks run once per datagram: leaving udp out avoids their cost on busy DNS servers. |
 | `stats.socket_traffic.read_interval` | `duration` | `OTEL_EBPF_STATS_SOCKET_TRAFFIC_READ_INTERVAL` | `10s` | `30s`, `5m`, `1ms`, etc |  | Is how often the counters are read from the kernel. It should not be longer than the metrics export interval. |
-| `stats.socket_traffic.tcp_metrics` | `boolean` | `OTEL_EBPF_STATS_SOCKET_TRAFFIC_TCP_METRICS` | `false` |  |  | Reads the obi.stat.tcp.* metrics from the TCP rows, every read interval and at close, like Datadog's connection stats, instead of one event per TCP event. Their cost then grows with the connections, not with the events. The failed connections stay events. |
+| `stats.socket_traffic.tcp_metrics` | `boolean` | `OTEL_EBPF_STATS_SOCKET_TRAFFIC_TCP_METRICS` | `false` |  |  | Reads the obi.stat.tcp.* metrics from the TCP rows, every read interval and at close, like Datadog's connection stats, instead of one event per TCP event. Their cost then grows with the connections, not with the events. |
 
 ---
 

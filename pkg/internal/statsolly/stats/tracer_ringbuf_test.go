@@ -45,9 +45,11 @@ const (
 	wireClosedRoleOffset     = 1
 	wireClosedConnOffset     = 4
 	wireRetransmitTypeOffset = 1
+	wireRetransmitRoleOffset = 2
 	wireRetransmitConnOffset = 4
 	wireTCPIoDirectionOffset = 1
 	wireTCPIoCountOffset     = 2
+	wireTCPIoRoleOffset      = 3
 	wireTCPIoBytesOffset     = 4
 	wireTCPIoConnOffset      = 44
 	wireFlowControlEvtOffset = 1
@@ -129,10 +131,12 @@ func TestParseStatDecodesEveryEventType(t *testing.T) {
 		oneZeroPortConn,
 	)
 	retransmitRaw[wireRetransmitTypeOffset] = uint8(ebpf.CodeRetransmitTimeout)
-	retransmitRaw[2], retransmitRaw[3] = 0xc2, 0xc3
+	retransmitRaw[wireRetransmitRoleOffset] = uint8(ebpf.CodeRoleClient)
+	retransmitRaw[3] = 0xc3
 	tcpIoRaw := newWireStat(ebpf.StatTypeTCPIo, wireSizeTCPIo, wireTCPIoConnOffset, ipv4Conn)
 	tcpIoRaw[wireTCPIoDirectionOffset] = uint8(ebpf.CodeDirectionTransmit)
-	tcpIoRaw[wireTCPIoCountOffset], tcpIoRaw[3] = 3, 0xd1
+	tcpIoRaw[wireTCPIoCountOffset] = 3
+	tcpIoRaw[wireTCPIoRoleOffset] = uint8(ebpf.CodeRoleServer)
 	putWireBytes(tcpIoRaw, [ebpf.TCPIoBatchSize]uint32{100, 200, 300, 400})
 	flowControlRaw := newWireStat(ebpf.StatTypeTCPFlowControl, wireSizeTCPFlowControl, wireFlowControlConn, ipv4Conn)
 	flowControlRaw[wireFlowControlEvtOffset] = uint8(ebpf.CodeFlowControlEventZeroWindow)
@@ -207,7 +211,9 @@ func TestParseStatDecodesEveryEventType(t *testing.T) {
 				Type:              ebpf.StatTypeTCPRetransmit,
 				TCPRetransmit:     true,
 				TCPRetransmitType: uint8(ebpf.CodeRetransmitTimeout),
+				TCPRetransmitRole: uint8(ebpf.CodeRoleClient),
 				CommonAttrs:       commonAttrs(oneZeroPortConn),
+				ServerPort:        8443,
 			},
 		},
 		{
@@ -218,8 +224,10 @@ func TestParseStatDecodesEveryEventType(t *testing.T) {
 				TCPIo: &ebpf.TCPIo{
 					Direction: uint8(ebpf.CodeDirectionTransmit),
 					Bytes:     600,
+					Role:      uint8(ebpf.CodeRoleServer),
 				},
 				CommonAttrs: commonAttrs(ipv4Conn),
+				ServerPort:  43123,
 			},
 		},
 		{

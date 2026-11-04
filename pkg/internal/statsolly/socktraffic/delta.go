@@ -19,9 +19,12 @@ type totals struct {
 	retransTimeout uint64
 	retransOther   uint64
 	zeroWindow     uint64
+	rto            uint64
+	recovery       uint64
 	deliveredCE    uint64
 	reordSeen      uint64
 	rcvOOOPack     uint64
+	failures       uint64
 }
 
 func rowTotals(r *row) totals {
@@ -29,8 +32,9 @@ func rowTotals(r *row) totals {
 		txBytes: r.TxBytes, rxBytes: r.RxBytes, txPackets: r.TxPackets, rxPackets: r.RxPackets,
 		established: uint64(r.Established), retransFast: uint64(r.RetransFast),
 		retransTimeout: uint64(r.RetransTimeout), retransOther: uint64(r.RetransOther),
-		zeroWindow: uint64(r.ZeroWindowProbes), deliveredCE: uint64(r.DeliveredCe),
-		reordSeen: uint64(r.ReordSeen), rcvOOOPack: uint64(r.RcvOoopack),
+		zeroWindow: uint64(r.ZeroWindowProbes), rto: uint64(r.RtoCount), recovery: uint64(r.RecoveryCount),
+		deliveredCE: uint64(r.DeliveredCe), reordSeen: uint64(r.ReordSeen), rcvOOOPack: uint64(r.RcvOoopack),
+		failures: uint64(r.Failures),
 	}
 }
 
@@ -89,9 +93,12 @@ func (d *deltaTracker) update(k *key, now totals, at time.Duration) totals {
 		retransTimeout: sub(now.retransTimeout, e.last.retransTimeout),
 		retransOther:   sub(now.retransOther, e.last.retransOther),
 		zeroWindow:     sub(now.zeroWindow, e.last.zeroWindow),
+		rto:            sub(now.rto, e.last.rto),
+		recovery:       sub(now.recovery, e.last.recovery),
 		deliveredCE:    sub(now.deliveredCE, e.last.deliveredCE),
 		reordSeen:      sub(now.reordSeen, e.last.reordSeen),
 		rcvOOOPack:     sub(now.rcvOOOPack, e.last.rcvOOOPack),
+		failures:       sub(now.failures, e.last.failures),
 	}
 	if underflow {
 		d.underflows++

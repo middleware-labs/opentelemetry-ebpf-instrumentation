@@ -63,6 +63,7 @@ type containerEntry struct {
 // dockerClient defines the Docker API methods needed by ContainerStore.
 type dockerClient interface {
 	ContainerInspect(ctx context.Context, container string, options client.ContainerInspectOptions) (client.ContainerInspectResult, error)
+	ContainerList(ctx context.Context, options client.ContainerListOptions) (client.ContainerListResult, error)
 	Events(ctx context.Context, options client.EventsListOptions) client.EventsResult
 }
 

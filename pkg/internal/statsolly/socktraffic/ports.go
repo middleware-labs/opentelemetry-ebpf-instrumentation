@@ -48,16 +48,38 @@ func SeedUDPPortBindings(bindings *ciliumebpf.Map, procRoot string) error {
 }
 
 // boundUDPPorts reads /proc/<pid>/net/udp and udp6 of one process per network namespace.
-// /proc/net/udp would only show OBI's own namespace. The inode of /proc/<pid>/ns/net is
-// the netns value of the kernel probes.
 func boundUDPPorts(procRoot string) (map[portKey]uint32, error) {
+	low, high := ephemeralPortRange(procRoot)
+	ports := map[portKey]uint32{}
+	err := forEachNetns(procRoot, func(netns uint32, pidDir string) {
+		for _, file := range []string{"udp", "udp6"} {
+			addUnconnectedUDPPorts(ports, netns, filepath.Join(pidDir, "net", file), low, high)
+		}
+	})
+	return ports, err
+}
+
+// listeningTCPPorts reads the listening ports of /proc/<pid>/net/tcp and tcp6 of one process per
+// network namespace, like Datadog's initializePortBindingMaps for TCP
+func listeningTCPPorts(procRoot string) (map[uint32]map[uint16]struct{}, error) {
+	ports := map[uint32]map[uint16]struct{}{}
+	err := forEachNetns(procRoot, func(netns uint32, pidDir string) {
+		if sockets, err := readTCPSockets(filepath.Join(pidDir, "net")); err == nil {
+			ports[netns] = sockets.listening
+		}
+	})
+	return ports, err
+}
+
+// forEachNetns calls fn with the /proc/<pid> directory of one process per network namespace.
+// /proc/net would only show OBI's own namespace. The inode of /proc/<pid>/ns/net is the netns
+// value of the kernel probes.
+func forEachNetns(procRoot string, fn func(netns uint32, pidDir string)) error {
 	entries, err := os.ReadDir(procRoot)
 	if err != nil {
-		return nil, fmt.Errorf("reading %s: %w", procRoot, err)
+		return fmt.Errorf("reading %s: %w", procRoot, err)
 	}
-	low, high := ephemeralPortRange(procRoot)
 
-	ports := map[portKey]uint32{}
 	readNetns := map[uint32]struct{}{}
 	for _, entry := range entries {
 		if _, err := strconv.Atoi(entry.Name()); err != nil {
@@ -73,12 +95,9 @@ func boundUDPPorts(procRoot string) (map[portKey]uint32, error) {
 			continue
 		}
 		readNetns[netns] = struct{}{}
-
-		for _, file := range []string{"udp", "udp6"} {
-			addUnconnectedUDPPorts(ports, netns, filepath.Join(pidDir, "net", file), low, high)
-		}
+		fn(netns, pidDir)
 	}
-	return ports, nil
+	return nil
 }
 
 // netnsInode parses the "net:[4026531840]" link of /proc/<pid>/ns/net

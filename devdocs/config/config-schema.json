@@ -3076,7 +3076,7 @@
         },
         "tcp_metrics": {
           "type": "boolean",
-          "description": "Reads the obi.stat.tcp.* metrics from the TCP rows, every read interval and at close, like Datadog's connection stats, instead of one event per TCP event. Their cost then grows with the connections, not with the events. The failed connections stay events.",
+          "description": "Reads the obi.stat.tcp.* metrics from the TCP rows, every read interval and at close, like Datadog's connection stats, instead of one event per TCP event. Their cost then grows with the connections, not with the events.",
           "default": false,
           "x-env-var": "OTEL_EBPF_STATS_SOCKET_TRAFFIC_TCP_METRICS"
         }

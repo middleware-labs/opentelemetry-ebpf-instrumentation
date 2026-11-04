@@ -81,7 +81,7 @@ func (c *pairCache) expire(now time.Time) {
 
 // get returns the shared Pair of two processes, nil when both are unknown
 func (c *pairCache) get(src, dst procmeta.Process) *procmeta.Pair {
-	if src.Pid == 0 && dst.Pid == 0 {
+	if src.Pid == 0 && src.ContainerID == "" && dst.Pid == 0 && dst.ContainerID == "" {
 		return nil
 	}
 	key := pairKey{src: src, dst: dst}

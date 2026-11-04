@@ -22,6 +22,10 @@ metrics:
         requirement_level: opt_in
       - ref: network.peer.same_host
         requirement_level: opt_in
+      - ref: src.pre_nat.address
+        requirement_level: opt_in
+      - ref: dst.pre_nat.address
+        requirement_level: opt_in
       - ref: src.name
         requirement_level: opt_in
       - ref: dst.name
@@ -120,6 +124,10 @@ metrics:
         requirement_level: opt_in
       - ref: network.peer.same_host
         requirement_level: opt_in
+      - ref: src.pre_nat.address
+        requirement_level: opt_in
+      - ref: dst.pre_nat.address
+        requirement_level: opt_in
       - ref: src.name
         requirement_level: opt_in
       - ref: dst.name
@@ -130,6 +138,8 @@ metrics:
         requirement_level: opt_in
       - ref: network.tcp.retransmit.type
         requirement_level: recommended
+      - ref: network.tcp.handshake.role
+        requirement_level: opt_in
       - ref: src.process.executable.name
         requirement_level: opt_in
       - ref: src.container.name
@@ -219,6 +229,10 @@ metrics:
         requirement_level: opt_in
       - ref: network.peer.same_host
         requirement_level: opt_in
+      - ref: src.pre_nat.address
+        requirement_level: opt_in
+      - ref: dst.pre_nat.address
+        requirement_level: opt_in
       - ref: src.name
         requirement_level: opt_in
       - ref: dst.name
@@ -229,6 +243,8 @@ metrics:
         requirement_level: opt_in
       - ref: network.io.direction
         requirement_level: recommended
+      - ref: network.tcp.handshake.role
+        requirement_level: opt_in
       - ref: src.process.executable.name
         requirement_level: opt_in
       - ref: src.container.name
@@ -330,6 +346,12 @@ metrics:
         requirement_level: opt_in
       - ref: network.tcp.handshake.role
         requirement_level: opt_in
+      - ref: network.peer.same_host
+        requirement_level: opt_in
+      - ref: src.pre_nat.address
+        requirement_level: opt_in
+      - ref: dst.pre_nat.address
+        requirement_level: opt_in
       - ref: src.process.executable.name
         requirement_level: opt_in
       - ref: src.container.name
@@ -418,6 +440,10 @@ metrics:
       - ref: server.port
         requirement_level: opt_in
       - ref: network.peer.same_host
+        requirement_level: opt_in
+      - ref: src.pre_nat.address
+        requirement_level: opt_in
+      - ref: dst.pre_nat.address
         requirement_level: opt_in
       - ref: src.name
         requirement_level: opt_in
@@ -519,6 +545,10 @@ metrics:
         requirement_level: opt_in
       - ref: network.peer.same_host
         requirement_level: opt_in
+      - ref: src.pre_nat.address
+        requirement_level: opt_in
+      - ref: dst.pre_nat.address
+        requirement_level: opt_in
       - ref: src.name
         requirement_level: opt_in
       - ref: dst.name
@@ -619,6 +649,10 @@ metrics:
       - ref: server.port
         requirement_level: opt_in
       - ref: network.peer.same_host
+        requirement_level: opt_in
+      - ref: src.pre_nat.address
+        requirement_level: opt_in
+      - ref: dst.pre_nat.address
         requirement_level: opt_in
       - ref: src.name
         requirement_level: opt_in
@@ -724,6 +758,10 @@ metrics:
         requirement_level: opt_in
       - ref: network.peer.same_host
         requirement_level: opt_in
+      - ref: src.pre_nat.address
+        requirement_level: opt_in
+      - ref: dst.pre_nat.address
+        requirement_level: opt_in
       - ref: src.name
         requirement_level: opt_in
       - ref: dst.name
@@ -825,6 +863,10 @@ metrics:
         requirement_level: opt_in
       - ref: network.peer.same_host
         requirement_level: opt_in
+      - ref: src.pre_nat.address
+        requirement_level: opt_in
+      - ref: dst.pre_nat.address
+        requirement_level: opt_in
       - ref: src.name
         requirement_level: opt_in
       - ref: dst.name
@@ -925,6 +967,10 @@ metrics:
         requirement_level: opt_in
       - ref: network.peer.same_host
         requirement_level: opt_in
+      - ref: src.pre_nat.address
+        requirement_level: opt_in
+      - ref: dst.pre_nat.address
+        requirement_level: opt_in
       - ref: src.name
         requirement_level: opt_in
       - ref: dst.name
@@ -1001,6 +1047,116 @@ metrics:
       - ref: service.peer.namespace
         requirement_level: opt_in
 
+
+  - name: obi.stat.tcp.congestion.events
+    instrument: counter
+    unit: "{event}"
+    stability: development
+    requirement_level: recommended
+    brief: >
+      Count of TCP congestion events, like Datadog's Retransmit Timeouts and
+      Fast Recovery Events. `rto` is one entry into loss (`tcp_enter_loss`)
+      after the retransmission timer expired, SYN resends included;
+      `recovery` is one entry into fast recovery (`tcp_enter_recovery`). They
+      count events, not segments, so they are not comparable with
+      `obi.stat.tcp.retransmits`. Read from the socket traffic rows only
+      (`stats.socket_traffic.tcp_metrics`).
+    attributes:
+      - ref: obi.ip
+        requirement_level: opt_in
+      - ref: src.address
+        requirement_level: recommended
+      - ref: dst.address
+        requirement_level: recommended
+      - ref: src.port
+        requirement_level: opt_in
+      - ref: dst.port
+        requirement_level: opt_in
+      - ref: server.port
+        requirement_level: opt_in
+      - ref: network.peer.same_host
+        requirement_level: opt_in
+      - ref: src.pre_nat.address
+        requirement_level: opt_in
+      - ref: dst.pre_nat.address
+        requirement_level: opt_in
+      - ref: src.name
+        requirement_level: opt_in
+      - ref: dst.name
+        requirement_level: opt_in
+      - ref: src.zone
+        requirement_level: opt_in
+      - ref: dst.zone
+        requirement_level: opt_in
+      - ref: network.tcp.congestion.event
+        requirement_level: recommended
+      - ref: network.tcp.handshake.role
+        requirement_level: opt_in
+      - ref: src.process.executable.name
+        requirement_level: opt_in
+      - ref: src.container.name
+        requirement_level: opt_in
+      - ref: src.container.image.name
+        requirement_level: opt_in
+      - ref: src.container.image.tag
+        requirement_level: opt_in
+      - ref: src.container.id
+        requirement_level: opt_in
+      - ref: dst.process.executable.name
+        requirement_level: opt_in
+      - ref: dst.container.name
+        requirement_level: opt_in
+      - ref: dst.container.image.name
+        requirement_level: opt_in
+      - ref: dst.container.image.tag
+        requirement_level: opt_in
+      - ref: dst.container.id
+        requirement_level: opt_in
+      - ref: k8s.cluster.name
+        requirement_level:
+          recommended: if Kubernetes decoration is enabled
+      - ref: k8s.src.owner.name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.src.owner.type
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.src.namespace
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.src.name
+        requirement_level: opt_in
+      - ref: k8s.src.type
+        requirement_level: opt_in
+      - ref: k8s.src.node.ip
+        requirement_level: opt_in
+      - ref: k8s.src.node.name
+        requirement_level: opt_in
+      - ref: k8s.dst.owner.name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.dst.owner.type
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.dst.namespace
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.dst.name
+        requirement_level: opt_in
+      - ref: k8s.dst.type
+        requirement_level: opt_in
+      - ref: k8s.dst.node.ip
+        requirement_level: opt_in
+      - ref: k8s.dst.node.name
+        requirement_level: opt_in
+      - ref: service.name
+        requirement_level: opt_in
+      - ref: service.namespace
+        requirement_level: opt_in
+      - ref: service.peer.name
+        requirement_level: opt_in
+      - ref: service.peer.namespace
+        requirement_level: opt_in
   - name: obi.stat.dns.lookup.duration
     instrument: histogram
     unit: "s"
@@ -1038,6 +1194,26 @@ metrics:
       - ref: dns.question.name
         requirement_level: opt_in
       - ref: dns.question.type
+        requirement_level: opt_in
+      - ref: src.process.executable.name
+        requirement_level: opt_in
+      - ref: src.container.name
+        requirement_level: opt_in
+      - ref: src.container.image.name
+        requirement_level: opt_in
+      - ref: src.container.image.tag
+        requirement_level: opt_in
+      - ref: src.container.id
+        requirement_level: opt_in
+      - ref: dst.process.executable.name
+        requirement_level: opt_in
+      - ref: dst.container.name
+        requirement_level: opt_in
+      - ref: dst.container.image.name
+        requirement_level: opt_in
+      - ref: dst.container.image.tag
+        requirement_level: opt_in
+      - ref: dst.container.id
         requirement_level: opt_in
       - ref: k8s.cluster.name
         requirement_level:
@@ -1107,6 +1283,10 @@ metrics:
       - ref: server.port
         requirement_level: opt_in
       - ref: network.peer.same_host
+        requirement_level: opt_in
+      - ref: src.pre_nat.address
+        requirement_level: opt_in
+      - ref: dst.pre_nat.address
         requirement_level: opt_in
       - ref: src.name
         requirement_level: opt_in
@@ -1213,6 +1393,10 @@ metrics:
       - ref: server.port
         requirement_level: opt_in
       - ref: network.peer.same_host
+        requirement_level: opt_in
+      - ref: src.pre_nat.address
+        requirement_level: opt_in
+      - ref: dst.pre_nat.address
         requirement_level: opt_in
       - ref: src.name
         requirement_level: opt_in

@@ -97,6 +97,7 @@ func TestPrometheusNames(t *testing.T) {
 		{StatTCPECNCEPackets, "obi_stat_tcp_ecn_ce_packets_total"},
 		{StatTCPReorderingEvents, "obi_stat_tcp_reordering_events_total"},
 		{StatTCPOutOfOrderPackets, "obi_stat_tcp_out_of_order_packets_total"},
+		{StatTCPCongestionEvents, "obi_stat_tcp_congestion_events_total"},
 		{StatDNSLookupDuration, "obi_stat_dns_lookup_duration_seconds"},
 		{V8JSGCDuration, "v8js_gc_duration_seconds"},
 		{V8JSMemoryHeapLimit, "v8js_memory_heap_limit_bytes"},

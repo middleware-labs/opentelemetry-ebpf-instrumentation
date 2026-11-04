@@ -16,6 +16,7 @@
 
 #include <statsolly/inet_sock_set_state.h>
 #include <statsolly/tcp_counters.h>
+#include <statsolly/tcp_failure.h>
 #include <statsolly/types.h>
 #include <statsolly/maps/sock_owner.h>
 #include <statsolly/maps/sock_role.h>
@@ -23,6 +24,7 @@
 #include <statsolly/maps/socket_traffic_bind_sock.h>
 #include <statsolly/maps/socket_traffic_closed.h>
 #include <statsolly/maps/socket_traffic_drops.h>
+#include <statsolly/maps/socket_traffic_retransmit.h>
 #include <statsolly/maps/socket_traffic_sendmsg_sock.h>
 #include <statsolly/maps/socket_traffic_udp_dport.h>
 #include <statsolly/maps/stats_events.h>
@@ -41,6 +43,8 @@ enum {
 
 // To be injected from userspace: the TCP rows also hold the TCP stat metrics
 volatile const bool stats_tcp_metrics_enabled = false;
+// To be injected from userspace: the failed connections are read from the TCP rows
+volatile const bool stats_tcp_failures_enabled = false;
 
 // Force structs into the ELF for automatic creation of Golang struct
 const socket_traffic_key_t *unused_socket_traffic_key __attribute__((unused));
@@ -210,6 +214,27 @@ count_tcp_read(struct sock *const sk, socket_traffic_t *const row, const u32 cop
     }
 }
 
+static __always_inline bool sock_dead(struct sock *const sk) {
+    const unsigned long flags = BPF_CORE_READ(sk, __sk_common.skc_flags);
+    return flags & (1UL << bpf_core_enum_value(enum sock_flags, SOCK_DEAD));
+}
+
+// At close the retransmits of a row are at least the socket's total_retrans, like Datadog's
+// cleanup_conn: it also counts the tail loss probes, which tcp_retransmit_skb doesn't see. They
+// have no type of their own: the socket isn't in loss or recovery. The late row of a dead socket
+// is skipped: its total includes what the socket's last row already sent.
+static __always_inline void count_close_retransmits(struct sock *const sk,
+                                                    socket_traffic_t *const row) {
+    if (!stats_tcp_metrics_enabled || sock_dead(sk)) {
+        return;
+    }
+    const u32 total = BPF_CORE_READ((struct tcp_sock *)sk, total_retrans);
+    const u32 counted = row->retrans_fast + row->retrans_timeout + row->retrans_other;
+    if (total > counted) {
+        __sync_fetch_and_add(&row->retrans_other, total - counted);
+    }
+}
+
 // Sends the final row of a closed socket to user space and deletes it, like Datadog's
 // conn_close_event. The row is deleted before the event is submitted, so user space never
 // reads it from the map after handling the close event. When the event cannot be reserved,
@@ -227,6 +252,7 @@ static __always_inline void flush_closed_row(const socket_traffic_key_t *const k
             return;
         }
         store_tcp_counters(sk, row);
+        count_close_retransmits(sk, row);
     }
 
     socket_traffic_closed_t *const event =
@@ -269,11 +295,6 @@ count_tcp_traffic(struct sock *const sk, const u32 tx_bytes, const u32 rx_copied
     row->last_update_ns = bpf_ktime_get_ns();
 }
 
-static __always_inline bool sock_dead(struct sock *const sk) {
-    const unsigned long flags = BPF_CORE_READ(sk, __sk_common.skc_flags);
-    return flags & (1UL << bpf_core_enum_value(enum sock_flags, SOCK_DEAD));
-}
-
 // A row created after the application closed its socket (its last row was already sent) only
 // counts from now on: the socket totals are the bases.
 static __always_inline void count_from_now(struct sock *const sk, socket_traffic_t *const row) {
@@ -307,16 +328,52 @@ static __always_inline socket_traffic_t *tcp_event_row(struct sock *const sk) {
     return row;
 }
 
+// A failed connection is counted on its row, like Datadog's handle_tcp_failure: a refused
+// connect creates it. Its role and process are still known: this program runs before the ones
+// that delete sock_role and sock_owner at TCP_CLOSE.
+static __always_inline void
+count_tcp_failure(struct sock *const sk,
+                  const struct trace_event_raw_inet_sock_set_state *const args) {
+    enum tcp_fail_reason reason;
+    if (!stats_tcp_failures_enabled || !tcp_failure(sk, args, &reason)) {
+        return;
+    }
+    // like Datadog, a connect that failed before it got a local port (EADDRNOTAVAIL) is not a
+    // connection: all of them would share one row
+    if (!BPF_CORE_READ((struct inet_sock *)sk, inet_sport)) {
+        return;
+    }
+    socket_traffic_t *const row = tcp_event_row(sk);
+    if (!row) {
+        return;
+    }
+    if (row->role == role_unknown) {
+        row->role = closing_sock_role(sk, args);
+    }
+    row->fail_reason = reason;
+    row->failures++;
+    store_tcp_counters(sk, row);
+    row->last_update_ns = bpf_ktime_get_ns();
+}
+
 // A connection is established: its row is created, so the connections without data are counted
-// too. The role comes from the handshake.
+// too. The role comes from the handshake. A connection that fails is counted on its row.
 SEC("tracepoint/sock/inet_sock_set_state")
 int obi_stats_tp_inet_sock_set_state_tcp_row(struct trace_event_raw_inet_sock_set_state *args) {
-    if (!inet_sock_set_state_tcp(args) || args->newstate != TCP_ESTABLISHED ||
-        (args->oldstate != TCP_SYN_SENT && args->oldstate != TCP_SYN_RECV)) {
+    if (!inet_sock_set_state_tcp(args)) {
         return 0;
     }
 
     struct sock *const sk = (struct sock *)args->skaddr;
+    if (args->newstate == TCP_CLOSE) {
+        count_tcp_failure(sk, args);
+        return 0;
+    }
+    if (args->newstate != TCP_ESTABLISHED ||
+        (args->oldstate != TCP_SYN_SENT && args->oldstate != TCP_SYN_RECV)) {
+        return 0;
+    }
+
     socket_traffic_t *const row = tcp_event_row(sk);
     if (!row) {
         return 0;
@@ -328,24 +385,56 @@ int obi_stats_tp_inet_sock_set_state_tcp_row(struct trace_event_raw_inet_sock_se
     return 0;
 }
 
-// The segments of a retransmitted skb: tcp_skb_pcount(skb), what __tcp_retransmit_skb adds to
-// total_retrans and TcpRetransSegs before this tracepoint fires
-static __always_inline u32 retransmitted_segs(struct sk_buff *const skb) {
-    const struct tcp_skb_cb *const cb = (const struct tcp_skb_cb *)&skb->cb;
-    const u16 segs = BPF_CORE_READ(cb, tcp_gso_segs);
-    return segs ? segs : 1;
+static __always_inline socket_traffic_retransmit_key_t retransmit_key(void) {
+    const socket_traffic_retransmit_key_t key = {
+        .pid_tgid = bpf_get_current_pid_tgid(),
+        .cpu = bpf_get_smp_processor_id(),
+    };
+    return key;
 }
 
-// Counts the retransmitted segments, like Datadog's tcp_retransmit_skb probes, including the
-// SYN retransmits. The retransmit events count one per tcp_retransmit_skb.
-SEC("raw_tracepoint/tcp_retransmit_skb")
-int obi_stats_raw_tp_tcp_retransmit_skb_row(struct bpf_raw_tracepoint_args *ctx) {
-    struct sock *const sk = (struct sock *)ctx->args[0];
+// Counts the segments that tcp_retransmit_skb retransmits, like Datadog's probes: the increase of
+// retrans_out, the SYN retransmits included. Not the failed retransmits, nor the tail loss probes
+// (tcp_send_loss_probe calls __tcp_retransmit_skb directly): count_close_retransmits adds those at
+// close. The retransmit events count one per tcp_retransmit_skb tracepoint, which fires for the
+// tail loss probes too.
+SEC("kprobe/tcp_retransmit_skb")
+int BPF_KPROBE(obi_stats_kprobe_tcp_retransmit_skb_row, struct sock *sk) {
+    (void)ctx;
+    const socket_traffic_retransmit_key_t key = retransmit_key();
+    const socket_traffic_retransmit_t call = {
+        .sk = (u64)(uintptr_t)sk,
+        .retrans_out_pre = BPF_CORE_READ((struct tcp_sock *)sk, retrans_out),
+    };
+    bpf_map_update_elem(&socket_traffic_retransmit, &key, &call, BPF_ANY);
+    return 0;
+}
+
+SEC("kretprobe/tcp_retransmit_skb")
+int BPF_KRETPROBE(obi_stats_kretprobe_tcp_retransmit_skb_row, int rc) {
+    (void)ctx;
+    const socket_traffic_retransmit_key_t key = retransmit_key();
+    const socket_traffic_retransmit_t *const call =
+        bpf_map_lookup_elem(&socket_traffic_retransmit, &key);
+    if (!call) {
+        return 0;
+    }
+    struct sock *const sk = (struct sock *)(uintptr_t)call->sk;
+    const u32 retrans_out_pre = call->retrans_out_pre;
+    bpf_map_delete_elem(&socket_traffic_retransmit, &key);
+    if (rc < 0) {
+        return 0;
+    }
+
+    const u32 retrans_out = BPF_CORE_READ((struct tcp_sock *)sk, retrans_out);
+    if (retrans_out <= retrans_out_pre) {
+        return 0;
+    }
+    const u32 segs = retrans_out - retrans_out_pre;
     socket_traffic_t *const row = tcp_event_row(sk);
     if (!row) {
         return 0;
     }
-    const u32 segs = retransmitted_segs((struct sk_buff *)ctx->args[1]);
     switch (sk_retransmit_type(sk)) {
     case retransmit_type_fast:
         __sync_fetch_and_add(&row->retrans_fast, segs);
@@ -370,6 +459,33 @@ int BPF_KPROBE(obi_stats_kprobe_tcp_send_probe0_row, struct sock *sk) {
         return 0;
     }
     __sync_fetch_and_add(&row->zero_window_probes, 1);
+    row->last_update_ns = bpf_ktime_get_ns();
+    return 0;
+}
+
+// Like Datadog's tcp_event_stats, one per call: the retransmission timer expired and the socket
+// entered loss, SYN resends included
+SEC("kprobe/tcp_enter_loss")
+int BPF_KPROBE(obi_stats_kprobe_tcp_enter_loss_row, struct sock *sk) {
+    (void)ctx;
+    socket_traffic_t *const row = tcp_event_row(sk);
+    if (!row) {
+        return 0;
+    }
+    __sync_fetch_and_add(&row->rto_count, 1);
+    row->last_update_ns = bpf_ktime_get_ns();
+    return 0;
+}
+
+// Like Datadog's tcp_event_stats, one per call: the socket entered fast recovery
+SEC("kprobe/tcp_enter_recovery")
+int BPF_KPROBE(obi_stats_kprobe_tcp_enter_recovery_row, struct sock *sk) {
+    (void)ctx;
+    socket_traffic_t *const row = tcp_event_row(sk);
+    if (!row) {
+        return 0;
+    }
+    __sync_fetch_and_add(&row->recovery_count, 1);
     row->last_update_ns = bpf_ktime_get_ns();
     return 0;
 }
@@ -448,6 +564,27 @@ int BPF_KPROBE(obi_stats_kprobe_tcp_close_traffic, struct sock *sk) {
     }
 
     flush_closed_row(&key, sk);
+    return 0;
+}
+
+// accept(), in the server process: the row of the new connection, created in softirq when it was
+// established, takes the process, like Datadog's kretprobe/inet_csk_accept. Without it, a server
+// that never sends nor reads, and whose listen() came before OBI, has rows without process.
+SEC("kretprobe/inet_csk_accept")
+int BPF_KRETPROBE(obi_stats_kretprobe_inet_csk_accept_row, struct sock *sk) {
+    (void)ctx;
+    // sk_protocol is a bitfield before kernel 5.6
+    if (!sk || BPF_CORE_READ_BITFIELD_PROBED(sk, sk_protocol) != IPPROTO_TCP) {
+        return 0;
+    }
+    socket_traffic_key_t key = {};
+    if (!tcp_traffic_key(sk, &key)) {
+        return 0;
+    }
+    socket_traffic_t *const row = bpf_map_lookup_elem(&socket_traffic, &key);
+    if (row && !row->pid) {
+        set_row_process(sk, row, true);
+    }
     return 0;
 }
 

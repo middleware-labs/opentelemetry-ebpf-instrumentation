@@ -396,6 +396,7 @@ const (
 	NetworkTCPHandshakeRole    = Name("network.tcp.handshake.role")
 	NetworkTCPRetransmitType   = Name("network.tcp.retransmit.type")
 	NetworkTCPFlowControlEvent = Name("network.tcp.flow_control.event")
+	NetworkTCPCongestionEvent  = Name("network.tcp.congestion.event")
 	NetworkIoDirection         = Name(semconv.NetworkIODirectionKey)
 	// NetworkTransport is the OTel name, used by the socket traffic metrics. The network flow
 	// metrics keep their own Transport attribute.
@@ -405,6 +406,10 @@ const (
 	NetworkConnectionRole = Name("network.connection.role")
 	// NetworkPeerSameHost tells whether the remote socket is on this host, like Datadog's IntraHost
 	NetworkPeerSameHost = Name("network.peer.same_host")
+	// The addresses of the socket traffic metrics before NAT, like Datadog's
+	// network.client.pre_nat.ip: src.address and dst.address are the ones after it
+	SrcPreNATAddress = Name("src.pre_nat.address")
+	DstPreNATAddress = Name("dst.pre_nat.address")
 
 	// The process and container of each side of the socket traffic metrics: src is the local
 	// socket, dst the remote one when it is on the same host.

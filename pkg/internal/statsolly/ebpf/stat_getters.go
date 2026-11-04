@@ -29,19 +29,35 @@ func StatGetters(name attr.Name) (attributes.Getter[*Stat, attribute.KeyValue], 
 		getter = func(s *Stat) attribute.KeyValue { return attribute.String(string(attr.OBIIP), s.CommonAttrs.OBIIP) }
 	case attr.SrcAddress:
 		getter = func(s *Stat) attribute.KeyValue {
-			return attribute.String(string(attr.SrcAddress), s.CommonAttrs.SrcAddr.IP().String())
+			e := s.Endpoints()
+			return attribute.String(string(attr.SrcAddress), e.SrcAddr.IP().String())
 		}
 	case attr.DstAddress:
 		getter = func(s *Stat) attribute.KeyValue {
-			return attribute.String(string(attr.DstAddress), s.CommonAttrs.DstAddr.IP().String())
+			e := s.Endpoints()
+			return attribute.String(string(attr.DstAddress), e.DstAddr.IP().String())
+		}
+	case attr.SrcPreNATAddress:
+		getter = func(s *Stat) attribute.KeyValue {
+			if s.NAT == nil {
+				return attribute.KeyValue{}
+			}
+			return attribute.String(string(attr.SrcPreNATAddress), s.NAT.Pre.SrcAddr.IP().String())
+		}
+	case attr.DstPreNATAddress:
+		getter = func(s *Stat) attribute.KeyValue {
+			if s.NAT == nil {
+				return attribute.KeyValue{}
+			}
+			return attribute.String(string(attr.DstPreNATAddress), s.NAT.Pre.DstAddr.IP().String())
 		}
 	case attr.SrcPort:
 		getter = func(s *Stat) attribute.KeyValue {
-			return attribute.Int(string(attr.SrcPort), int(s.CommonAttrs.SrcPort))
+			return attribute.Int(string(attr.SrcPort), int(s.Endpoints().SrcPort))
 		}
 	case attr.DstPort:
 		getter = func(s *Stat) attribute.KeyValue {
-			return attribute.Int(string(attr.DstPort), int(s.CommonAttrs.DstPort))
+			return attribute.Int(string(attr.DstPort), int(s.Endpoints().DstPort))
 		}
 	case attr.ServerPort:
 		getter = func(s *Stat) attribute.KeyValue {
@@ -78,6 +94,12 @@ func StatGetters(name attr.Name) (attributes.Getter[*Stat, attribute.KeyValue], 
 				role = s.TCPFlowControl.Role
 			case StatTypeTCPCongestion:
 				role = s.TCPCongestion.Role
+			case StatTypeTCPCongestionEvent:
+				role = s.TCPCongestionEvent.Role
+			case StatTypeTCPRetransmit:
+				role = s.TCPRetransmitRole
+			case StatTypeTCPIo:
+				role = s.TCPIo.Role
 			}
 			return attribute.String(string(attr.NetworkTCPHandshakeRole), networkTCPHandshakeRoleStr(role))
 		}
@@ -91,6 +113,13 @@ func StatGetters(name attr.Name) (attributes.Getter[*Stat, attribute.KeyValue], 
 				return attribute.String(string(attr.NetworkTCPFlowControlEvent), string(FlowControlEventUnknown))
 			}
 			return attribute.String(string(attr.NetworkTCPFlowControlEvent), networkTCPFlowControlEventStr(s.TCPFlowControl.Event))
+		}
+	case attr.NetworkTCPCongestionEvent:
+		getter = func(s *Stat) attribute.KeyValue {
+			if s.TCPCongestionEvent == nil {
+				return attribute.String(string(attr.NetworkTCPCongestionEvent), string(CongestionEventUnknown))
+			}
+			return attribute.String(string(attr.NetworkTCPCongestionEvent), networkTCPCongestionEventStr(s.TCPCongestionEvent.Event))
 		}
 	case attr.NetworkIoDirection:
 		getter = func(s *Stat) attribute.KeyValue {
@@ -186,6 +215,16 @@ func processGetter(name attr.Name) (func(*Stat) string, bool) {
 	}, true
 }
 
+// Endpoints returns the endpoints of a stat after NAT, like Datadog's network.client.ip and
+// network.server.ip
+func (s *Stat) Endpoints() Endpoints {
+	if s.NAT != nil {
+		return s.NAT.Post
+	}
+	a := &s.CommonAttrs
+	return Endpoints{SrcAddr: a.SrcAddr, DstAddr: a.DstAddr, SrcPort: a.SrcPort, DstPort: a.DstPort}
+}
+
 func StatStringGetters(name attr.Name) (attributes.Getter[*Stat, string], bool) {
 	if g, ok := StatGetters(name); ok {
 		return func(s *Stat) string {
@@ -246,6 +285,17 @@ func networkTCPFlowControlEventStr(event uint8) string {
 		return string(FlowControlEventZeroWindow)
 	default:
 		return string(FlowControlEventUnknown)
+	}
+}
+
+func networkTCPCongestionEventStr(event uint8) string {
+	switch NetworkTCPCongestionEventCode(event) {
+	case CodeCongestionEventRTO:
+		return string(CongestionEventRTO)
+	case CodeCongestionEventRecovery:
+		return string(CongestionEventRecovery)
+	default:
+		return string(CongestionEventUnknown)
 	}
 }
 

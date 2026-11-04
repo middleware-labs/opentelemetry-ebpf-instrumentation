@@ -17,7 +17,7 @@ type StatsFetcher struct{}
 
 func NewStatsFetcher(
 	_ *config.EBPFTracer, _ *export.Features, _ *attributes.SelectorConfig, _ *config.SocketTrafficConfig,
-	_ bool, _ func(*ciliumebpf.Map) error,
+	_ bool, _ func(*ciliumebpf.Map) error, _ bool,
 ) (*StatsFetcher, error) {
 	return nil, nil
 }
@@ -44,6 +44,14 @@ func (m *StatsFetcher) SocketTrafficClosedMap() *ciliumebpf.Map {
 }
 
 func (m *StatsFetcher) SocketTrafficDropsMap() *ciliumebpf.Map {
+	return nil
+}
+
+func (m *StatsFetcher) EndpointOwnerMap() *ciliumebpf.Map {
+	return nil
+}
+
+func (m *StatsFetcher) NATTranslationsMap() *ciliumebpf.Map {
 	return nil
 }
 

@@ -119,22 +119,16 @@ func TestTCPSocketsIsListening(t *testing.T) {
 
 	s := newTCPSockets(procRoot)
 	server := tcpConnKey("10.0.0.2", 5432, "10.0.0.1", 41001)
-	listening, known := s.isListening(&server, 100)
-	assert.True(t, known)
-	assert.True(t, listening)
+	assert.True(t, s.isListening(&server, 100))
 	assert.True(t, s.isOpen(&server, 100), "a listening socket does not hide the connections")
 
 	server6 := tcpConnKey("10.0.0.2", 8080, "10.0.0.3", 50000)
-	listening, _ = s.isListening(&server6, 100)
-	assert.True(t, listening)
+	assert.True(t, s.isListening(&server6, 100))
 
 	client := tcpConnKey("10.0.0.2", 41002, "10.0.0.9", 443)
-	listening, known = s.isListening(&client, 100)
-	assert.True(t, known)
-	assert.False(t, listening)
+	assert.False(t, s.isListening(&client, 100))
 
 	gone := server
 	gone.Netns = 2
-	_, known = s.isListening(&gone, 200)
-	assert.False(t, known, "the process ended")
+	assert.False(t, s.isListening(&gone, 200), "the process ended: like Datadog, a port not found")
 }

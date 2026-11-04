@@ -18,41 +18,7 @@
 #include <statsolly/maps/sock_role.h>
 #include <statsolly/maps/sock_owner.h>
 #include <statsolly/tcp_counters.h>
-
-#ifndef ECONNREFUSED
-#define ECONNREFUSED 111
-#endif
-#ifndef ECONNRESET
-#define ECONNRESET 104
-#endif
-#ifndef ETIMEDOUT
-#define ETIMEDOUT 110
-#endif
-#ifndef EHOSTUNREACH
-#define EHOSTUNREACH 113
-#endif
-#ifndef ENETUNREACH
-#define ENETUNREACH 101
-#endif
-
-static __always_inline enum tcp_fail_reason sk_err_to_reason(const int err) {
-    switch (err) {
-    case ECONNREFUSED:
-        return reason_connection_refused;
-    case ECONNRESET:
-        return reason_connection_reset;
-    case ETIMEDOUT:
-        return reason_timed_out;
-    case EHOSTUNREACH:
-        return reason_host_unreachable;
-    case ENETUNREACH:
-        return reason_net_unreachable;
-    case 0:
-        return reason_unknown;
-    default:
-        return reason_other;
-    }
-}
+#include <statsolly/tcp_failure.h>
 
 typedef struct tcp_failed_connection {
     u8 flags; // Must be first, we use it to tell what kind of event we have on the ring buffer
@@ -66,7 +32,8 @@ typedef struct tcp_failed_connection {
 typedef struct tcp_retransmit {
     u8 flags; // Must be first, we use it to tell what kind of event we have on the ring buffer
     enum tcp_retransmit_type type;
-    u8 _pad[2];
+    enum tcp_handshake_role role;
+    u8 _pad[1];
     connection_info_t conn;
     sock_owner_t owner;
 } tcp_retransmit_t;
@@ -103,18 +70,14 @@ fix_closed_sport(connection_info_t *const conn,
     }
 }
 
-static __always_inline enum tcp_handshake_role
-closing_sock_role(struct sock *const sk,
-                  const struct trace_event_raw_inet_sock_set_state *const args) {
+// a SYN retransmit comes before the handshake sets sock_role
+static __always_inline enum tcp_handshake_role retransmit_sock_role(struct sock *const sk) {
     const u8 *const role_ptr = bpf_map_lookup_elem(&sock_role, &sk);
     if (role_ptr) {
         return *role_ptr;
     }
-    if (args->oldstate == TCP_SYN_SENT) {
+    if (BPF_CORE_READ(sk, __sk_common.skc_state) == TCP_SYN_SENT) {
         return role_client;
-    }
-    if (args->oldstate == TCP_SYN_RECV) {
-        return role_server;
     }
     return role_unknown;
 }
@@ -162,25 +125,10 @@ int obi_stats_tp_inet_sock_set_state_tcp_failed_connection(
 
     struct sock *const sk = (struct sock *)args->skaddr;
 
-    if (args->newstate != TCP_CLOSE) {
+    enum tcp_fail_reason reason;
+    if (!tcp_failure(sk, args, &reason)) {
         return 0;
     }
-
-    // {TCP_LAST_ACK|TCP_TIME_WAIT}->TCP_CLOSE are normal close transitions
-    // TCP_LISTEN->TCP_CLOSE is what happens when a listener socket is shut down
-    if (args->oldstate == TCP_LAST_ACK || args->oldstate == TCP_TIME_WAIT ||
-        args->oldstate == TCP_LISTEN) {
-        return 0;
-    }
-
-    const int err = BPF_CORE_READ(sk, sk_err);
-    // Trust sk_err: err==0 means the kernel saw no problem (e.g. local close()
-    // with unread data sends RST without setting sk_err).
-    // Exception: aborted connect (TCP_SYN_SENT -> TCP_CLOSE) never established, still a failure.
-    if (err == 0 && args->oldstate != TCP_SYN_SENT) {
-        return 0;
-    }
-    const u8 reason = sk_err_to_reason(err);
 
     connection_info_t conn;
     if (!parse_sock_info(sk, &conn)) {
@@ -305,6 +253,7 @@ int obi_stats_raw_tp_tcp_retransmit_skb(struct bpf_raw_tracepoint_args *ctx) {
 
     se->flags = k_stat_type_tcp_retransmit;
     se->type = sk_retransmit_type(sk);
+    se->role = retransmit_sock_role(sk);
     se->conn = conn;
     read_sock_owner(sk, &se->owner);
 

@@ -209,6 +209,12 @@ section empty once drained.
 - Captured `http.request.header.*` and `http.response.header.*` now appear only on plain
   HTTP and GraphQL spans. Protocol spans parsed from HTTP traffic never carried them, so
   in practice this only changes Go `net/rpc` JSON-RPC spans.
+- On the socket traffic metrics (`obi.stat.bytes`, `obi.stat.packets`) and the TCP stat
+  metrics read from the rows (`stats.socket_traffic.tcp_metrics: true`), `src.address`,
+  `dst.address`, `src.port`, `dst.port` and `server.port` are now the endpoints after NAT,
+  from conntrack, like Datadog's `network.client.ip`: a masqueraded container reports the
+  host address, a client of a Kubernetes service its backend. The socket addresses move to
+  the new `src.pre_nat.address` and `dst.pre_nat.address`, set only when there is NAT.
 
 ## Hosting notes
 

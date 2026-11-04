@@ -66,6 +66,23 @@ attributes:
       handshake (`unknown` for connections established before OBI started),
       UDP from the bound local ports: a socket bound to its local port is the
       `server`.
+  # Mirrors Datadog's network.client.pre_nat.ip and network.server.pre_nat.ip.
+  - key: src.pre_nat.address
+    type: string
+    stability: development
+    brief: >
+      Source address before NAT, from conntrack: the address of the client socket, or the one
+      the client connected to on the server side, unless that client is on the same host. Set
+      only when the connection is translated; `src.address` is then the address after NAT.
+    examples: ["172.29.0.20"]
+  - key: dst.pre_nat.address
+    type: string
+    stability: development
+    brief: >
+      Destination address before NAT, from conntrack: for example the Kubernetes service
+      address that a client connected to. Set only when the connection is translated;
+      `dst.address` is then the address after NAT.
+    examples: ["10.96.0.10"]
   # Mirrors Datadog's IntraHost.
   - key: network.peer.same_host
     type: boolean
@@ -160,7 +177,8 @@ attributes:
     brief: >
       Cause of a TCP retransmission: `timeout` when the retransmission
       timer expired, `fast` during fast recovery (duplicate ACKs or SACK),
-      `other` for anything else (e.g. tail loss probes).
+      `other` for anything else (e.g. SYN retransmits, and the tail loss
+      probes: the socket traffic rows add them when the connection closes).
   # Mirrors `NetworkTCPFlowControlEventType` in
   # `pkg/internal/statsolly/ebpf/stat.go`.
   - key: network.tcp.flow_control.event
@@ -176,6 +194,25 @@ attributes:
     brief: >
       Kind of TCP flow-control event. `zero_window` is a zero-window
       probe sent while the peer advertises a zero receive window.
+  # Mirrors `NetworkTCPCongestionEventType` in
+  # `pkg/internal/statsolly/ebpf/stat.go`.
+  - key: network.tcp.congestion.event
+    type:
+      members:
+        - id: rto
+          value: rto
+          stability: development
+        - id: recovery
+          value: recovery
+          stability: development
+        - id: unknown
+          value: unknown
+          stability: development
+    stability: development
+    brief: >
+      Kind of TCP congestion event. `rto` is an entry into loss after the
+      retransmission timer expired; `recovery` is an entry into fast
+      recovery.
   # Set from the question of the stats DNS lookups, in
   # `pkg/internal/statsolly/ebpf/stat_getters.go`. There is no semantic
   # convention for the question type yet.

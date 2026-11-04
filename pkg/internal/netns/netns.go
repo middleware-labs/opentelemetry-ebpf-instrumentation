@@ -50,6 +50,11 @@ func IsIsolated(pid int) (bool, error) {
 	return pidIno != hostIno, nil
 }
 
+// Inode returns the inode of the network namespace of hostPid: the netns value of the kernel
+func Inode(hostPid int) (uint64, error) {
+	return statNetNSInode(netNSPath(hostPid))
+}
+
 func netNSInode(path string) (uint64, error) {
 	var st unix.Stat_t
 	if err := unix.Stat(path, &st); err != nil {

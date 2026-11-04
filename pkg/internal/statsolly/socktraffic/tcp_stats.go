@@ -20,7 +20,7 @@ type Emit struct {
 	// Traffic are the socket bytes and packets
 	Traffic bool
 	// the TCP stat metrics read from the rows (stats.socket_traffic.tcp_metrics)
-	TCPRtt, TCPSuccessful, TCPClosed, TCPRetransmits, TCPIo, TCPFlowControl, TCPCongestion bool
+	TCPRtt, TCPFailed, TCPSuccessful, TCPClosed, TCPRetransmits, TCPIo, TCPFlowControl, TCPCongestion bool
 	// ServerPort sets the port of the server side of each stat (server.port is selected)
 	ServerPort bool
 	// Role sets the role of the TCP connections opened before OBI started (network.connection.role
@@ -33,6 +33,7 @@ func EmitFor(features *export.Features, tcpFromRows bool) Emit {
 	return Emit{
 		Traffic:        features.StatsSocketTraffic(),
 		TCPRtt:         tcpFromRows && features.StatsTCPRtt(),
+		TCPFailed:      tcpFromRows && features.StatsTCPFailedConnections(),
 		TCPSuccessful:  tcpFromRows && features.StatsTCPSuccessfulConnections(),
 		TCPClosed:      tcpFromRows && features.StatsTCPClosedConnections(),
 		TCPRetransmits: tcpFromRows && features.StatsTCPRetransmits(),
@@ -43,7 +44,7 @@ func EmitFor(features *export.Features, tcpFromRows bool) Emit {
 }
 
 func (e *Emit) tcp() bool {
-	return e.TCPRtt || e.TCPSuccessful || e.TCPClosed || e.TCPRetransmits || e.TCPIo || e.TCPFlowControl || e.TCPCongestion
+	return e.TCPRtt || e.TCPFailed || e.TCPSuccessful || e.TCPClosed || e.TCPRetransmits || e.TCPIo || e.TCPFlowControl || e.TCPCongestion
 }
 
 // appendRowStats appends the stats of the increase of a row. closed is true for the final row
@@ -84,16 +85,25 @@ func (e *Emit) appendTCPStats(stats []*ebpf.Stat, k *key, r *row, delta totals, 
 		return s
 	}
 
+	// like Datadog's failure_reason: the failures of the row, which holds its last reason
+	if e.TCPFailed && delta.failures > 0 {
+		newStat(ebpf.StatTypeTCPFailedConnection, delta.failures).
+			TCPFailedConnection = &ebpf.TCPFailedConnection{Reason: uint8(r.FailReason), Role: role}
+	}
 	if e.TCPSuccessful && delta.established > 0 {
 		newStat(ebpf.StatTypeTCPSuccessfulConnection, delta.established).
 			TCPSuccessfulConnection = &ebpf.TCPSuccessfulConnection{Role: role}
 	}
-	// like Datadog, only the established connections: the failed ones are the failed connections.
-	// Every connection established on the row has ended: a new connection with the same
-	// addresses can take the row over before the close of the previous one, which is then not
-	// sent (the previous socket closes later, or its tcp_close was missed).
-	if e.TCPClosed && closed && connection {
-		newStat(ebpf.StatTypeTCPClosedConnection, uint64(max(r.Established, 1))).
+	// like Datadog's cleanup_conn, a failed connection attempt is also a closed connection: its
+	// failure is only counted with the failed connections enabled. Every connection of the row
+	// has ended: a new connection with the same addresses can take the row over before the close
+	// of the previous one, which is then not sent (the previous socket closes later, or its
+	// tcp_close was missed). An established connection that got a reset is closed once. A row
+	// holding only a reset isn't a new closed connection: the reset came after the application
+	// closed the socket, whose row was already sent.
+	failedAttempt := r.Failures > 0 && ebpf.TCPFailReasonTypeCode(r.FailReason) != ebpf.CodeConnectionReset
+	if e.TCPClosed && closed && (connection || failedAttempt) {
+		newStat(ebpf.StatTypeTCPClosedConnection, max(uint64(r.Established), uint64(r.Failures), 1)).
 			TCPClosedConnection = &ebpf.TCPClosedConnection{Role: role}
 	}
 	if srtt := time.Duration(r.SrttUs) * time.Microsecond; e.TCPRtt && connection && srtt > 0 && srtt <= maxSrtt && (closed || delta.any()) {
@@ -110,7 +120,7 @@ func (e *Emit) appendTCPStats(stats []*ebpf.Stat, k *key, r *row, delta totals, 
 		} {
 			if rt.count > 0 {
 				s := newStat(ebpf.StatTypeTCPRetransmit, rt.count)
-				s.TCPRetransmit, s.TCPRetransmitType = true, uint8(rt.code)
+				s.TCPRetransmit, s.TCPRetransmitType, s.TCPRetransmitRole = true, uint8(rt.code), role
 			}
 		}
 	}
@@ -123,13 +133,28 @@ func (e *Emit) appendTCPStats(stats []*ebpf.Stat, k *key, r *row, delta totals, 
 			{ebpf.CodeDirectionReceive, delta.rxBytes},
 		} {
 			if d.bytes > 0 {
-				newStat(ebpf.StatTypeTCPIo, 0).TCPIo = &ebpf.TCPIo{Direction: uint8(d.direction), Bytes: d.bytes}
+				newStat(ebpf.StatTypeTCPIo, 0).TCPIo = &ebpf.TCPIo{Direction: uint8(d.direction), Bytes: d.bytes, Role: role}
 			}
 		}
 	}
 	if e.TCPFlowControl && delta.zeroWindow > 0 {
 		newStat(ebpf.StatTypeTCPFlowControl, delta.zeroWindow).TCPFlowControl = &ebpf.TCPFlowControl{
 			Event: uint8(ebpf.CodeFlowControlEventZeroWindow), Role: role,
+		}
+	}
+	if e.TCPCongestion {
+		for _, c := range []struct {
+			event ebpf.NetworkTCPCongestionEventCode
+			count uint64
+		}{
+			{ebpf.CodeCongestionEventRTO, delta.rto},
+			{ebpf.CodeCongestionEventRecovery, delta.recovery},
+		} {
+			if c.count > 0 {
+				newStat(ebpf.StatTypeTCPCongestionEvent, c.count).TCPCongestionEvent = &ebpf.TCPCongestionEvent{
+					Event: uint8(c.event), Role: role,
+				}
+			}
 		}
 	}
 	if e.TCPCongestion && (delta.deliveredCE > 0 || delta.reordSeen > 0 || delta.rcvOOOPack > 0) {

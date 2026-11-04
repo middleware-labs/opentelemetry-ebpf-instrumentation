@@ -17,6 +17,7 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/config"
+	"go.opentelemetry.io/obi/pkg/docker"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
@@ -25,6 +26,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/helpers/container"
 	"go.opentelemetry.io/obi/pkg/internal/procmeta"
 	"go.opentelemetry.io/obi/pkg/internal/statsolly/ebpf"
+	"go.opentelemetry.io/obi/pkg/internal/statsolly/nat"
 	"go.opentelemetry.io/obi/pkg/internal/statsolly/socktraffic"
 	stats "go.opentelemetry.io/obi/pkg/internal/statsolly/stats"
 	"go.opentelemetry.io/obi/pkg/netip"
@@ -102,8 +104,13 @@ type ebpFetcher interface {
 	SocketTrafficClosedMap() *ciliumebpf.Map
 	SocketTrafficDropsMap() *ciliumebpf.Map
 	EndpointOwnerMap() *ciliumebpf.Map
+	NATTranslationsMap() *ciliumebpf.Map
 	DebugEventsMap() *ciliumebpf.Map
 }
+
+// dnsOwnerWaitIntervals is how many socket traffic read intervals a DNS lookup waits for its
+// client socket
+const dnsOwnerWaitIntervals = 2
 
 func StatsAgent(ctxInfo *global.ContextInfo, cfg *obi.Config) (*Stats, error) {
 	alog := alog()
@@ -127,7 +134,9 @@ func StatsAgent(ctxInfo *global.ContextInfo, cfg *obi.Config) (*Stats, error) {
 		ExtraGroupAttributesCfg: cfg.Attributes.ExtraGroupAttributes,
 	}
 	tcpSrc, tcpDst := processAttrsSelected(cfg, tcpStatMetrics(&cfg.Metrics.Features))
-	statsFetcher, err = newFetcher(&cfg.EBPF, &cfg.Metrics.Features, selectorCfg, &cfg.Stats.SocketTraffic, tcpSrc || tcpDst)
+	tcpRows := ebpf.TCPMetricsFromRows(&cfg.Metrics.Features, &cfg.Stats.SocketTraffic)
+	statsFetcher, err = newFetcher(&cfg.EBPF, &cfg.Metrics.Features, selectorCfg, &cfg.Stats.SocketTraffic,
+		tcpSrc || tcpDst, natSelected(cfg, tcpRows))
 	if err != nil {
 		return nil, err
 	}
@@ -140,10 +149,10 @@ func newFetcher(
 	features *export.Features,
 	selectorCfg *attributes.SelectorConfig,
 	socketTraffic *config.SocketTrafficConfig,
-	sockOwners bool,
+	sockOwners, nat bool,
 ) (ebpFetcher, error) {
 	seedUDPPorts := func(bindings *ciliumebpf.Map) error { return socktraffic.SeedUDPPortBindings(bindings, procRoot) }
-	return ebpf.NewStatsFetcher(cfg, features, selectorCfg, socketTraffic, sockOwners, seedUDPPorts)
+	return ebpf.NewStatsFetcher(cfg, features, selectorCfg, socketTraffic, sockOwners, seedUDPPorts, nat)
 }
 
 // statsAgent is a private constructor with injectable dependencies, usable for tests
@@ -172,9 +181,16 @@ func statsAgent(
 		emit.ServerPort = attrSelected(cfg, rowMetrics(&cfg.Metrics.Features, tcpRows), attr.ServerPort)
 		emit.Role = attrSelected(cfg, socketTrafficMetrics(&cfg.Metrics.Features), attr.NetworkConnectionRole) ||
 			tcpRows && attrSelected(cfg, tcpStatMetrics(&cfg.Metrics.Features), attr.NetworkTCPHandshakeRole)
+		var natTracker *nat.Tracker
+		if natSelected(cfg, tcpRows) {
+			natTracker = nat.New(statsFetcher.NATTranslationsMap())
+		}
 		socketTraffic = socktraffic.NewReader(statsFetcher.SocketTrafficMap(), statsFetcher.SocketTrafficClosedMap(),
 			statsFetcher.SocketTrafficDropsMap(), &cfg.EBPF, &cfg.Stats.SocketTraffic, procRoot,
-			emit, dstProcessAttrsSelected(cfg, tcpRows) || sameHostSelected(cfg, tcpRows), ctxInfo.Metrics)
+			emit, dstProcessAttrsSelected(cfg, tcpRows) || sameHostSelected(cfg, tcpRows), natTracker, ctxInfo.Metrics)
+	}
+	if dnsTracer != nil {
+		findDNSOwners(cfg, dnsTracer, socketTraffic)
 	}
 
 	return &Stats{
@@ -213,6 +229,46 @@ func socketTrafficMetrics(features *export.Features) []statMetric {
 	}
 }
 
+// dnsMetrics take the process of their client socket from the socket traffic rows
+func dnsMetrics(features *export.Features) []statMetric {
+	return []statMetric{{features.StatsDNSLookups(), attributes.StatDNSLookupDuration}}
+}
+
+// findDNSOwners sets the process of the DNS lookups from the client sockets of the UDP rows,
+// when a process or container attribute of the lookups is selected
+func findDNSOwners(cfg *obi.Config, dnsTracer *stats.DNSTracer, socketTraffic *socktraffic.Reader) {
+	if src, dst := processAttrsSelected(cfg, dnsMetrics(&cfg.Metrics.Features)); !src && !dst {
+		return
+	}
+	if socketTraffic == nil || !cfg.Stats.SocketTraffic.UDP() {
+		alog().Warn("the process and container attributes of the DNS lookups need the socket traffic" +
+			" metrics with UDP in stats.socket_traffic.protocols: they are left empty, except the container" +
+			" of the DNS servers that are Docker containers")
+		return
+	}
+	// a client socket is learned at the next map read, or at its close
+	dnsTracer.FindOwners(socketTraffic.LocalOwners(), dnsOwnerWaitIntervals*cfg.Stats.SocketTraffic.ReadInterval)
+}
+
+// findDNSServerContainers sets the container of the DNS servers without socket in the socket
+// traffic rows from the addresses of the Docker containers, when a dst process or container
+// attribute of the lookups is selected
+func (s *Stats) findDNSServerContainers(ctx context.Context) {
+	if s.dnsTracer == nil {
+		return
+	}
+	if _, dst := processAttrsSelected(s.cfg, dnsMetrics(&s.cfg.Metrics.Features)); !dst {
+		return
+	}
+	containers := s.ctxInfo.DockerMetadata
+	if containers == nil || !containers.IsEnabled(ctx) {
+		return
+	}
+	addrs := docker.NewAddrIndex(containers)
+	go addrs.Run(ctx)
+	s.dnsTracer.FindContainers(addrs)
+}
+
 // tcpStatMetrics are the metrics that take the process of a socket from the TCP stat events
 func tcpStatMetrics(features *export.Features) []statMetric {
 	return []statMetric{
@@ -226,6 +282,7 @@ func tcpStatMetrics(features *export.Features) []statMetric {
 		{features.StatsTCPCongestion(), attributes.StatTCPECNCEPackets},
 		{features.StatsTCPCongestion(), attributes.StatTCPReorderingEvents},
 		{features.StatsTCPCongestion(), attributes.StatTCPOutOfOrderPackets},
+		{features.StatsTCPCongestion(), attributes.StatTCPCongestionEvents},
 	}
 }
 
@@ -270,6 +327,19 @@ func processAttrsSelected(cfg *obi.Config, metrics []statMetric) (src, dst bool)
 func dstProcessAttrsSelected(cfg *obi.Config, tcpRows bool) bool {
 	_, dst := processAttrsSelected(cfg, rowMetrics(&cfg.Metrics.Features, tcpRows))
 	return dst
+}
+
+// natAttrs report the endpoints of the socket traffic rows after NAT, or before it
+var natAttrs = []attr.Name{
+	attr.SrcAddress, attr.DstAddress, attr.SrcPort, attr.DstPort, attr.ServerPort,
+	attr.SrcPreNATAddress, attr.DstPreNATAddress,
+}
+
+// natSelected tells whether the metrics of the socket traffic rows report an address or a port,
+// which are the ones after NAT: with tcpRows, the TCP stat metrics too
+func natSelected(cfg *obi.Config, tcpRows bool) bool {
+	metrics := rowMetrics(&cfg.Metrics.Features, tcpRows)
+	return slices.ContainsFunc(natAttrs, func(name attr.Name) bool { return attrSelected(cfg, metrics, name) })
 }
 
 // sameHostSelected tells whether the metrics of the socket traffic rows have

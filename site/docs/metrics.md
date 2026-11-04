@@ -1373,6 +1373,7 @@ Payload bytes that the applications send and read on their TCP and UDP sockets, 
 | `dst.container.name` | string | `opt_in` | development | Name of the container of the process of the remote (on the same host) socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
 | `dst.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
 | `dst.port` | int | `opt_in` | development | Destination TCP/UDP port. |  |
+| `dst.pre_nat.address` | string | `opt_in` | development | Destination address before NAT, from conntrack: for example the Kubernetes service address that a client connected to. Set only when the connection is translated; `dst.address` is then the address after NAT. | 10.96.0.10 |
 | `dst.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the remote (on the same host) socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
 | `dst.zone` | string | `opt_in` | development | Zone label attached to the destination side. | us-east-1b |
 | `k8s.cluster.name` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The name of the cluster. | opentelemetry-cluster |
@@ -1407,6 +1408,7 @@ Payload bytes that the applications send and read on their TCP and UDP sockets, 
 | `src.container.name` | string | `opt_in` | development | Name of the container of the process of the local socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
 | `src.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
 | `src.port` | int | `opt_in` | development | Source TCP/UDP port. |  |
+| `src.pre_nat.address` | string | `opt_in` | development | Source address before NAT, from conntrack: the address of the client socket, or the one the client connected to on the server side, unless that client is on the same host. Set only when the connection is translated; `src.address` is then the address after NAT. | 172.29.0.20 |
 | `src.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the local socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
 | `src.zone` | string | `opt_in` | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
 
@@ -1423,8 +1425,13 @@ Duration of the DNS lookups (UDP and TCP, port 53) of all the processes in OBI's
 | `dns.question.name` | string | `opt_in` | development | The name being queried. | www.example.com; opentelemetry.io |
 | `dns.question.type` | string | `opt_in` | development | DNS record type of the question, as its name (`A`, `AAAA`, `SRV`...), or as its number for the types without a name in OBI. | A; AAAA; SRV |
 | `dst.address` | string | `recommended` | development | Destination IP address of the flow. | 10.0.0.6 |
+| `dst.container.id` | string | `opt_in` | development | Container ID of the process of the remote (on the same host) socket, from its cgroup. High cardinality: for debugging. | a3bf90e006b2e6b4f4bb1e8f8b8d1f1c4f2a9d3e2c1b0a9f8e7d6c5b4a392817 |
+| `dst.container.image.name` | string | `opt_in` | development | Image name of the container of the process of the remote (on the same host) socket (Docker only). | myrepo/orders |
+| `dst.container.image.tag` | string | `opt_in` | development | Image tag of the container of the process of the remote (on the same host) socket (Docker only). | 1.4 |
+| `dst.container.name` | string | `opt_in` | development | Name of the container of the process of the remote (on the same host) socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
 | `dst.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
 | `dst.port` | int | `opt_in` | development | Destination TCP/UDP port. |  |
+| `dst.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the remote (on the same host) socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
 | `dst.zone` | string | `opt_in` | development | Zone label attached to the destination side. | us-east-1b |
 | `error.type` | string | `conditionally_required`: if the lookup ended in an error or a timeout | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 | `k8s.cluster.name` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The name of the cluster. | opentelemetry-cluster |
@@ -1448,8 +1455,13 @@ Duration of the DNS lookups (UDP and TCP, port 53) of all the processes in OBI's
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `service.peer.namespace` | string | `opt_in` | development | Logical namespace of the service on the other side of the connection. SHOULD be equal to the actual [`service.namespace`](/docs/resource/README.md#service) resource attribute of the remote service if any. | Shop |
 | `src.address` | string | `recommended` | development | Source IP address of the flow. | 10.0.0.5 |
+| `src.container.id` | string | `opt_in` | development | Container ID of the process of the local socket, from its cgroup. High cardinality: for debugging. | a3bf90e006b2e6b4f4bb1e8f8b8d1f1c4f2a9d3e2c1b0a9f8e7d6c5b4a392817 |
+| `src.container.image.name` | string | `opt_in` | development | Image name of the container of the process of the local socket (Docker only). | myrepo/orders |
+| `src.container.image.tag` | string | `opt_in` | development | Image tag of the container of the process of the local socket (Docker only). | 1.4 |
+| `src.container.name` | string | `opt_in` | development | Name of the container of the process of the local socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
 | `src.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
 | `src.port` | int | `opt_in` | development | Source TCP/UDP port. |  |
+| `src.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the local socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
 | `src.zone` | string | `opt_in` | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
 
 ## `obi.stat.packets`
@@ -1469,6 +1481,7 @@ TCP segments and UDP datagrams sent and received by the applications' sockets, c
 | `dst.container.name` | string | `opt_in` | development | Name of the container of the process of the remote (on the same host) socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
 | `dst.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
 | `dst.port` | int | `opt_in` | development | Destination TCP/UDP port. |  |
+| `dst.pre_nat.address` | string | `opt_in` | development | Destination address before NAT, from conntrack: for example the Kubernetes service address that a client connected to. Set only when the connection is translated; `dst.address` is then the address after NAT. | 10.96.0.10 |
 | `dst.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the remote (on the same host) socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
 | `dst.zone` | string | `opt_in` | development | Zone label attached to the destination side. | us-east-1b |
 | `k8s.cluster.name` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The name of the cluster. | opentelemetry-cluster |
@@ -1503,6 +1516,7 @@ TCP segments and UDP datagrams sent and received by the applications' sockets, c
 | `src.container.name` | string | `opt_in` | development | Name of the container of the process of the local socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
 | `src.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
 | `src.port` | int | `opt_in` | development | Source TCP/UDP port. |  |
+| `src.pre_nat.address` | string | `opt_in` | development | Source address before NAT, from conntrack: the address of the client socket, or the one the client connected to on the server side, unless that client is on the same host. Set only when the connection is translated; `src.address` is then the address after NAT. | 172.29.0.20 |
 | `src.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the local socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
 | `src.zone` | string | `opt_in` | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
 
@@ -1523,6 +1537,7 @@ Count of TCP connections that reached the closed state, including failed connect
 | `dst.container.name` | string | `opt_in` | development | Name of the container of the process of the remote (on the same host) socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
 | `dst.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
 | `dst.port` | int | `opt_in` | development | Destination TCP/UDP port. |  |
+| `dst.pre_nat.address` | string | `opt_in` | development | Destination address before NAT, from conntrack: for example the Kubernetes service address that a client connected to. Set only when the connection is translated; `dst.address` is then the address after NAT. | 10.96.0.10 |
 | `dst.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the remote (on the same host) socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
 | `dst.zone` | string | `opt_in` | development | Zone label attached to the destination side. | us-east-1b |
 | `k8s.cluster.name` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The name of the cluster. | opentelemetry-cluster |
@@ -1555,6 +1570,62 @@ Count of TCP connections that reached the closed state, including failed connect
 | `src.container.name` | string | `opt_in` | development | Name of the container of the process of the local socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
 | `src.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
 | `src.port` | int | `opt_in` | development | Source TCP/UDP port. |  |
+| `src.pre_nat.address` | string | `opt_in` | development | Source address before NAT, from conntrack: the address of the client socket, or the one the client connected to on the server side, unless that client is on the same host. Set only when the connection is translated; `src.address` is then the address after NAT. | 172.29.0.20 |
+| `src.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the local socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
+| `src.zone` | string | `opt_in` | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
+
+## `obi.stat.tcp.congestion.events`
+
+Count of TCP congestion events, like Datadog's Retransmit Timeouts and Fast Recovery Events. `rto` is one entry into loss (`tcp_enter_loss`) after the retransmission timer expired, SYN resends included; `recovery` is one entry into fast recovery (`tcp_enter_recovery`). They count events, not segments, so they are not comparable with `obi.stat.tcp.retransmits`. Read from the socket traffic rows only (`stats.socket_traffic.tcp_metrics`).
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | {event} | development |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `dst.address` | string | `recommended` | development | Destination IP address of the flow. | 10.0.0.6 |
+| `dst.container.id` | string | `opt_in` | development | Container ID of the process of the remote (on the same host) socket, from its cgroup. High cardinality: for debugging. | a3bf90e006b2e6b4f4bb1e8f8b8d1f1c4f2a9d3e2c1b0a9f8e7d6c5b4a392817 |
+| `dst.container.image.name` | string | `opt_in` | development | Image name of the container of the process of the remote (on the same host) socket (Docker only). | myrepo/orders |
+| `dst.container.image.tag` | string | `opt_in` | development | Image tag of the container of the process of the remote (on the same host) socket (Docker only). | 1.4 |
+| `dst.container.name` | string | `opt_in` | development | Name of the container of the process of the remote (on the same host) socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
+| `dst.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
+| `dst.port` | int | `opt_in` | development | Destination TCP/UDP port. |  |
+| `dst.pre_nat.address` | string | `opt_in` | development | Destination address before NAT, from conntrack: for example the Kubernetes service address that a client connected to. Set only when the connection is translated; `dst.address` is then the address after NAT. | 10.96.0.10 |
+| `dst.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the remote (on the same host) socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
+| `dst.zone` | string | `opt_in` | development | Zone label attached to the destination side. | us-east-1b |
+| `k8s.cluster.name` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The name of the cluster. | opentelemetry-cluster |
+| `k8s.dst.name` | string | `opt_in` | development | Name of the destination Kubernetes object (e.g. Pod name). | users-api-65b8-fghij |
+| `k8s.dst.namespace` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the destination workload. | integration-test |
+| `k8s.dst.node.ip` | string | `opt_in` | development | IP address of the node hosting the destination workload. | 10.0.1.6 |
+| `k8s.dst.node.name` | string | `opt_in` | development | Name of the node hosting the destination workload. | node-2 |
+| `k8s.dst.owner.name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Name of the top-level Kubernetes owner of the destination workload. | users-api |
+| `k8s.dst.owner.type` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kind of the top-level Kubernetes owner of the destination workload. | Deployment |
+| `k8s.dst.type` | string | `opt_in` | development | Type of the destination Kubernetes object. | Pod |
+| `k8s.src.name` | string | `opt_in` | development | Name of the source Kubernetes object (e.g. Pod name). | frontend-7d9c-abcde |
+| `k8s.src.namespace` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the source workload. | integration-test |
+| `k8s.src.node.ip` | string | `opt_in` | development | IP address of the node hosting the source workload. | 10.0.1.5 |
+| `k8s.src.node.name` | string | `opt_in` | development | Name of the node hosting the source workload. | node-1 |
+| `k8s.src.owner.name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Name of the top-level Kubernetes owner of the source workload. | frontend |
+| `k8s.src.owner.type` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kind of the top-level Kubernetes owner of the source workload. | Deployment |
+| `k8s.src.type` | string | `opt_in` | development | Type of the source Kubernetes object. | Pod |
+| `network.peer.same_host` | boolean | `opt_in` | development | Whether the remote socket is on this host: its address and port are the local side of another socket traffic row (the network namespace is kept for loopback addresses), or both addresses are the same or loopback. Always `false` for the TCP stats read from the events. |  |
+| `network.tcp.congestion.event` | enum | `recommended` | development | Kind of TCP congestion event. `rto` is an entry into loss after the retransmission timer expired; `recovery` is an entry into fast recovery. | rto; recovery; unknown |
+| `network.tcp.handshake.role` | enum | `opt_in` | development | Role of the local endpoint in the TCP three-way handshake (`client` initiated the SYN, `server` was awaiting it). | client; server; unknown |
+| `obi.ip` | string | `opt_in` | development | IP address of the host running OBI. | 10.0.0.5 |
+| `server.port` | int | `opt_in` | stable | Server port number. | 80; 8080; 443 |
+| `service.name` | string | `opt_in` | stable | Logical name of the service. | shoppingcart |
+| `service.namespace` | string | `opt_in` | stable | A namespace for `service.name`. | Shop |
+| `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
+| `service.peer.namespace` | string | `opt_in` | development | Logical namespace of the service on the other side of the connection. SHOULD be equal to the actual [`service.namespace`](/docs/resource/README.md#service) resource attribute of the remote service if any. | Shop |
+| `src.address` | string | `recommended` | development | Source IP address of the flow. | 10.0.0.5 |
+| `src.container.id` | string | `opt_in` | development | Container ID of the process of the local socket, from its cgroup. High cardinality: for debugging. | a3bf90e006b2e6b4f4bb1e8f8b8d1f1c4f2a9d3e2c1b0a9f8e7d6c5b4a392817 |
+| `src.container.image.name` | string | `opt_in` | development | Image name of the container of the process of the local socket (Docker only). | myrepo/orders |
+| `src.container.image.tag` | string | `opt_in` | development | Image tag of the container of the process of the local socket (Docker only). | 1.4 |
+| `src.container.name` | string | `opt_in` | development | Name of the container of the process of the local socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
+| `src.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
+| `src.port` | int | `opt_in` | development | Source TCP/UDP port. |  |
+| `src.pre_nat.address` | string | `opt_in` | development | Source address before NAT, from conntrack: the address of the client socket, or the one the client connected to on the server side, unless that client is on the same host. Set only when the connection is translated; `src.address` is then the address after NAT. | 172.29.0.20 |
 | `src.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the local socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
 | `src.zone` | string | `opt_in` | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
 
@@ -1575,6 +1646,7 @@ Count of sent TCP packets that a router on the path marked as ECN congestion exp
 | `dst.container.name` | string | `opt_in` | development | Name of the container of the process of the remote (on the same host) socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
 | `dst.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
 | `dst.port` | int | `opt_in` | development | Destination TCP/UDP port. |  |
+| `dst.pre_nat.address` | string | `opt_in` | development | Destination address before NAT, from conntrack: for example the Kubernetes service address that a client connected to. Set only when the connection is translated; `dst.address` is then the address after NAT. | 10.96.0.10 |
 | `dst.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the remote (on the same host) socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
 | `dst.zone` | string | `opt_in` | development | Zone label attached to the destination side. | us-east-1b |
 | `k8s.cluster.name` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The name of the cluster. | opentelemetry-cluster |
@@ -1607,6 +1679,7 @@ Count of sent TCP packets that a router on the path marked as ECN congestion exp
 | `src.container.name` | string | `opt_in` | development | Name of the container of the process of the local socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
 | `src.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
 | `src.port` | int | `opt_in` | development | Source TCP/UDP port. |  |
+| `src.pre_nat.address` | string | `opt_in` | development | Source address before NAT, from conntrack: the address of the client socket, or the one the client connected to on the server side, unless that client is on the same host. Set only when the connection is translated; `src.address` is then the address after NAT. | 172.29.0.20 |
 | `src.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the local socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
 | `src.zone` | string | `opt_in` | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
 
@@ -1627,6 +1700,7 @@ Count of TCP connections that failed to establish, broken down by `reason`.
 | `dst.container.name` | string | `opt_in` | development | Name of the container of the process of the remote (on the same host) socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
 | `dst.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
 | `dst.port` | int | `opt_in` | development | Destination TCP/UDP port. |  |
+| `dst.pre_nat.address` | string | `opt_in` | development | Destination address before NAT, from conntrack: for example the Kubernetes service address that a client connected to. Set only when the connection is translated; `dst.address` is then the address after NAT. | 10.96.0.10 |
 | `dst.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the remote (on the same host) socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
 | `dst.zone` | string | `opt_in` | development | Zone label attached to the destination side. | us-east-1b |
 | `k8s.cluster.name` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The name of the cluster. | opentelemetry-cluster |
@@ -1644,6 +1718,7 @@ Count of TCP connections that failed to establish, broken down by `reason`.
 | `k8s.src.owner.name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Name of the top-level Kubernetes owner of the source workload. | frontend |
 | `k8s.src.owner.type` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kind of the top-level Kubernetes owner of the source workload. | Deployment |
 | `k8s.src.type` | string | `opt_in` | development | Type of the source Kubernetes object. | Pod |
+| `network.peer.same_host` | boolean | `opt_in` | development | Whether the remote socket is on this host: its address and port are the local side of another socket traffic row (the network namespace is kept for loopback addresses), or both addresses are the same or loopback. Always `false` for the TCP stats read from the events. |  |
 | `network.tcp.handshake.role` | enum | `opt_in` | development | Role of the local endpoint in the TCP three-way handshake (`client` initiated the SYN, `server` was awaiting it). | client; server; unknown |
 | `obi.ip` | string | `opt_in` | development | IP address of the host running OBI. | 10.0.0.5 |
 | `reason` | enum | `opt_in` | development | Classification of why a TCP connection failed. | refused; reset; timed-out; host-unreachable; net-unreachable; other; unknown |
@@ -1659,6 +1734,7 @@ Count of TCP connections that failed to establish, broken down by `reason`.
 | `src.container.name` | string | `opt_in` | development | Name of the container of the process of the local socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
 | `src.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
 | `src.port` | int | `opt_in` | development | Source TCP/UDP port. |  |
+| `src.pre_nat.address` | string | `opt_in` | development | Source address before NAT, from conntrack: the address of the client socket, or the one the client connected to on the server side, unless that client is on the same host. Set only when the connection is translated; `src.address` is then the address after NAT. | 172.29.0.20 |
 | `src.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the local socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
 | `src.zone` | string | `opt_in` | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
 
@@ -1679,6 +1755,7 @@ Count of TCP flow-control events. For `zero_window`, one event is one zero-windo
 | `dst.container.name` | string | `opt_in` | development | Name of the container of the process of the remote (on the same host) socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
 | `dst.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
 | `dst.port` | int | `opt_in` | development | Destination TCP/UDP port. |  |
+| `dst.pre_nat.address` | string | `opt_in` | development | Destination address before NAT, from conntrack: for example the Kubernetes service address that a client connected to. Set only when the connection is translated; `dst.address` is then the address after NAT. | 10.96.0.10 |
 | `dst.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the remote (on the same host) socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
 | `dst.zone` | string | `opt_in` | development | Zone label attached to the destination side. | us-east-1b |
 | `k8s.cluster.name` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The name of the cluster. | opentelemetry-cluster |
@@ -1712,6 +1789,7 @@ Count of TCP flow-control events. For `zero_window`, one event is one zero-windo
 | `src.container.name` | string | `opt_in` | development | Name of the container of the process of the local socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
 | `src.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
 | `src.port` | int | `opt_in` | development | Source TCP/UDP port. |  |
+| `src.pre_nat.address` | string | `opt_in` | development | Source address before NAT, from conntrack: the address of the client socket, or the one the client connected to on the server side, unless that client is on the same host. Set only when the connection is translated; `src.address` is then the address after NAT. | 172.29.0.20 |
 | `src.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the local socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
 | `src.zone` | string | `opt_in` | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
 
@@ -1732,6 +1810,7 @@ Count of bytes transferred at the socket layer per TCP connection, broken down b
 | `dst.container.name` | string | `opt_in` | development | Name of the container of the process of the remote (on the same host) socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
 | `dst.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
 | `dst.port` | int | `opt_in` | development | Destination TCP/UDP port. |  |
+| `dst.pre_nat.address` | string | `opt_in` | development | Destination address before NAT, from conntrack: for example the Kubernetes service address that a client connected to. Set only when the connection is translated; `dst.address` is then the address after NAT. | 10.96.0.10 |
 | `dst.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the remote (on the same host) socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
 | `dst.zone` | string | `opt_in` | development | Zone label attached to the destination side. | us-east-1b |
 | `k8s.cluster.name` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The name of the cluster. | opentelemetry-cluster |
@@ -1751,6 +1830,7 @@ Count of bytes transferred at the socket layer per TCP connection, broken down b
 | `k8s.src.type` | string | `opt_in` | development | Type of the source Kubernetes object. | Pod |
 | `network.io.direction` | enum | `recommended` | development | The network IO operation direction. | transmit |
 | `network.peer.same_host` | boolean | `opt_in` | development | Whether the remote socket is on this host: its address and port are the local side of another socket traffic row (the network namespace is kept for loopback addresses), or both addresses are the same or loopback. Always `false` for the TCP stats read from the events. |  |
+| `network.tcp.handshake.role` | enum | `opt_in` | development | Role of the local endpoint in the TCP three-way handshake (`client` initiated the SYN, `server` was awaiting it). | client; server; unknown |
 | `obi.ip` | string | `opt_in` | development | IP address of the host running OBI. | 10.0.0.5 |
 | `server.port` | int | `opt_in` | stable | Server port number. | 80; 8080; 443 |
 | `service.name` | string | `opt_in` | stable | Logical name of the service. | shoppingcart |
@@ -1764,6 +1844,7 @@ Count of bytes transferred at the socket layer per TCP connection, broken down b
 | `src.container.name` | string | `opt_in` | development | Name of the container of the process of the local socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
 | `src.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
 | `src.port` | int | `opt_in` | development | Source TCP/UDP port. |  |
+| `src.pre_nat.address` | string | `opt_in` | development | Source address before NAT, from conntrack: the address of the client socket, or the one the client connected to on the server side, unless that client is on the same host. Set only when the connection is translated; `src.address` is then the address after NAT. | 172.29.0.20 |
 | `src.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the local socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
 | `src.zone` | string | `opt_in` | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
 
@@ -1784,6 +1865,7 @@ Count of TCP packets received out of order (with a gap before them). Read from t
 | `dst.container.name` | string | `opt_in` | development | Name of the container of the process of the remote (on the same host) socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
 | `dst.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
 | `dst.port` | int | `opt_in` | development | Destination TCP/UDP port. |  |
+| `dst.pre_nat.address` | string | `opt_in` | development | Destination address before NAT, from conntrack: for example the Kubernetes service address that a client connected to. Set only when the connection is translated; `dst.address` is then the address after NAT. | 10.96.0.10 |
 | `dst.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the remote (on the same host) socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
 | `dst.zone` | string | `opt_in` | development | Zone label attached to the destination side. | us-east-1b |
 | `k8s.cluster.name` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The name of the cluster. | opentelemetry-cluster |
@@ -1816,6 +1898,7 @@ Count of TCP packets received out of order (with a gap before them). Read from t
 | `src.container.name` | string | `opt_in` | development | Name of the container of the process of the local socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
 | `src.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
 | `src.port` | int | `opt_in` | development | Source TCP/UDP port. |  |
+| `src.pre_nat.address` | string | `opt_in` | development | Source address before NAT, from conntrack: the address of the client socket, or the one the client connected to on the server side, unless that client is on the same host. Set only when the connection is translated; `src.address` is then the address after NAT. | 172.29.0.20 |
 | `src.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the local socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
 | `src.zone` | string | `opt_in` | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
 
@@ -1836,6 +1919,7 @@ Count of TCP data packet reordering events detected by the sender from ACKs and 
 | `dst.container.name` | string | `opt_in` | development | Name of the container of the process of the remote (on the same host) socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
 | `dst.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
 | `dst.port` | int | `opt_in` | development | Destination TCP/UDP port. |  |
+| `dst.pre_nat.address` | string | `opt_in` | development | Destination address before NAT, from conntrack: for example the Kubernetes service address that a client connected to. Set only when the connection is translated; `dst.address` is then the address after NAT. | 10.96.0.10 |
 | `dst.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the remote (on the same host) socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
 | `dst.zone` | string | `opt_in` | development | Zone label attached to the destination side. | us-east-1b |
 | `k8s.cluster.name` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The name of the cluster. | opentelemetry-cluster |
@@ -1868,6 +1952,7 @@ Count of TCP data packet reordering events detected by the sender from ACKs and 
 | `src.container.name` | string | `opt_in` | development | Name of the container of the process of the local socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
 | `src.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
 | `src.port` | int | `opt_in` | development | Source TCP/UDP port. |  |
+| `src.pre_nat.address` | string | `opt_in` | development | Source address before NAT, from conntrack: the address of the client socket, or the one the client connected to on the server side, unless that client is on the same host. Set only when the connection is translated; `src.address` is then the address after NAT. | 172.29.0.20 |
 | `src.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the local socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
 | `src.zone` | string | `opt_in` | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
 
@@ -1888,6 +1973,7 @@ Count of TCP retransmissions observed per connection.
 | `dst.container.name` | string | `opt_in` | development | Name of the container of the process of the remote (on the same host) socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
 | `dst.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
 | `dst.port` | int | `opt_in` | development | Destination TCP/UDP port. |  |
+| `dst.pre_nat.address` | string | `opt_in` | development | Destination address before NAT, from conntrack: for example the Kubernetes service address that a client connected to. Set only when the connection is translated; `dst.address` is then the address after NAT. | 10.96.0.10 |
 | `dst.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the remote (on the same host) socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
 | `dst.zone` | string | `opt_in` | development | Zone label attached to the destination side. | us-east-1b |
 | `k8s.cluster.name` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The name of the cluster. | opentelemetry-cluster |
@@ -1906,7 +1992,8 @@ Count of TCP retransmissions observed per connection.
 | `k8s.src.owner.type` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kind of the top-level Kubernetes owner of the source workload. | Deployment |
 | `k8s.src.type` | string | `opt_in` | development | Type of the source Kubernetes object. | Pod |
 | `network.peer.same_host` | boolean | `opt_in` | development | Whether the remote socket is on this host: its address and port are the local side of another socket traffic row (the network namespace is kept for loopback addresses), or both addresses are the same or loopback. Always `false` for the TCP stats read from the events. |  |
-| `network.tcp.retransmit.type` | enum | `recommended` | development | Cause of a TCP retransmission: `timeout` when the retransmission timer expired, `fast` during fast recovery (duplicate ACKs or SACK), `other` for anything else (e.g. tail loss probes). | timeout; fast; other |
+| `network.tcp.handshake.role` | enum | `opt_in` | development | Role of the local endpoint in the TCP three-way handshake (`client` initiated the SYN, `server` was awaiting it). | client; server; unknown |
+| `network.tcp.retransmit.type` | enum | `recommended` | development | Cause of a TCP retransmission: `timeout` when the retransmission timer expired, `fast` during fast recovery (duplicate ACKs or SACK), `other` for anything else (e.g. SYN retransmits, and the tail loss probes: the socket traffic rows add them when the connection closes). | timeout; fast; other |
 | `obi.ip` | string | `opt_in` | development | IP address of the host running OBI. | 10.0.0.5 |
 | `server.port` | int | `opt_in` | stable | Server port number. | 80; 8080; 443 |
 | `service.name` | string | `opt_in` | stable | Logical name of the service. | shoppingcart |
@@ -1920,6 +2007,7 @@ Count of TCP retransmissions observed per connection.
 | `src.container.name` | string | `opt_in` | development | Name of the container of the process of the local socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
 | `src.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
 | `src.port` | int | `opt_in` | development | Source TCP/UDP port. |  |
+| `src.pre_nat.address` | string | `opt_in` | development | Source address before NAT, from conntrack: the address of the client socket, or the one the client connected to on the server side, unless that client is on the same host. Set only when the connection is translated; `src.address` is then the address after NAT. | 172.29.0.20 |
 | `src.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the local socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
 | `src.zone` | string | `opt_in` | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
 
@@ -1940,6 +2028,7 @@ Smoothed round-trip time observed per TCP connection.
 | `dst.container.name` | string | `opt_in` | development | Name of the container of the process of the remote (on the same host) socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
 | `dst.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
 | `dst.port` | int | `opt_in` | development | Destination TCP/UDP port. |  |
+| `dst.pre_nat.address` | string | `opt_in` | development | Destination address before NAT, from conntrack: for example the Kubernetes service address that a client connected to. Set only when the connection is translated; `dst.address` is then the address after NAT. | 10.96.0.10 |
 | `dst.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the remote (on the same host) socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
 | `dst.zone` | string | `opt_in` | development | Zone label attached to the destination side. | us-east-1b |
 | `k8s.cluster.name` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The name of the cluster. | opentelemetry-cluster |
@@ -1972,6 +2061,7 @@ Smoothed round-trip time observed per TCP connection.
 | `src.container.name` | string | `opt_in` | development | Name of the container of the process of the local socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
 | `src.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
 | `src.port` | int | `opt_in` | development | Source TCP/UDP port. |  |
+| `src.pre_nat.address` | string | `opt_in` | development | Source address before NAT, from conntrack: the address of the client socket, or the one the client connected to on the server side, unless that client is on the same host. Set only when the connection is translated; `src.address` is then the address after NAT. | 172.29.0.20 |
 | `src.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the local socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
 | `src.zone` | string | `opt_in` | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
 
@@ -1992,6 +2082,7 @@ Count of TCP connections that completed the three-way handshake, broken down by 
 | `dst.container.name` | string | `opt_in` | development | Name of the container of the process of the remote (on the same host) socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
 | `dst.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
 | `dst.port` | int | `opt_in` | development | Destination TCP/UDP port. |  |
+| `dst.pre_nat.address` | string | `opt_in` | development | Destination address before NAT, from conntrack: for example the Kubernetes service address that a client connected to. Set only when the connection is translated; `dst.address` is then the address after NAT. | 10.96.0.10 |
 | `dst.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the remote (on the same host) socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
 | `dst.zone` | string | `opt_in` | development | Zone label attached to the destination side. | us-east-1b |
 | `k8s.cluster.name` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The name of the cluster. | opentelemetry-cluster |
@@ -2024,6 +2115,7 @@ Count of TCP connections that completed the three-way handshake, broken down by 
 | `src.container.name` | string | `opt_in` | development | Name of the container of the process of the local socket: the container name in its Kubernetes pod, or the Docker container name. | orders |
 | `src.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
 | `src.port` | int | `opt_in` | development | Source TCP/UDP port. |  |
+| `src.pre_nat.address` | string | `opt_in` | development | Source address before NAT, from conntrack: the address of the client socket, or the one the client connected to on the server side, unless that client is on the same host. Set only when the connection is translated; `src.address` is then the address after NAT. | 172.29.0.20 |
 | `src.process.executable.name` | string | `opt_in` | development | Base name of the executable of the process of the local socket. It is truncated to 16 bytes for a process that ended before OBI looked it up. | python3.12; nginx |
 | `src.zone` | string | `opt_in` | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
 

@@ -19,6 +19,9 @@ type Process struct {
 	// ExecName is the base name of the executable, truncated to 15 characters
 	ExecName string
 	CgroupID uint64
+	// ContainerID is the container of a remote address whose process is unknown (Pid 0), found
+	// from the addresses of the local containers
+	ContainerID string
 }
 
 // Info is what the network metrics report about the process of a socket
@@ -95,14 +98,17 @@ func NewResolver(procRoot string, sources Sources) *Resolver {
 }
 
 // Info returns the process and container of a socket's process. When the process ended before
-// it was looked up, its name and container come from what the kernel kept. It is empty for an
-// unknown process (PID 0).
+// it was looked up, its name and container come from what the kernel kept. For an unknown
+// process (PID 0), it is the container of its ContainerID, if any.
 func (r *Resolver) Info(p Process) Info {
-	if p.Pid == 0 {
+	if p.Pid == 0 && p.ContainerID == "" {
 		return Info{}
 	}
 	now := r.now()
 	r.prune(now)
+	if p.Pid == 0 {
+		return r.containerInfo(p.ContainerID, now)
+	}
 
 	pid := r.pidInfo(p.Pid, now)
 	execName, containerID := pid.execName, pid.containerID

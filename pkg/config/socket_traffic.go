@@ -32,7 +32,7 @@ type SocketTrafficConfig struct {
 	ConnectionRollup bool `yaml:"connection_rollup" env:"OTEL_EBPF_STATS_SOCKET_TRAFFIC_CONNECTION_ROLLUP"`
 	// TCPMetrics reads the obi.stat.tcp.* metrics from the TCP rows, every read interval and
 	// at close, like Datadog's connection stats, instead of one event per TCP event. Their cost
-	// then grows with the connections, not with the events. The failed connections stay events.
+	// then grows with the connections, not with the events.
 	TCPMetrics bool `yaml:"tcp_metrics" env:"OTEL_EBPF_STATS_SOCKET_TRAFFIC_TCP_METRICS"`
 }
 

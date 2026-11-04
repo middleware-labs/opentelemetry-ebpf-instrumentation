@@ -163,3 +163,12 @@ func TestResolverCachesTheContainers(t *testing.T) {
 	*now = now.Add(recheckAfter)
 	assert.Equal(t, "api", r.Info(Process{Pid: 102}).ContainerName)
 }
+
+func TestResolverContainerWithoutProcess(t *testing.T) {
+	src := &fakeSources{docker: map[string][2]string{"c-dns": {"coredns", "coredns/coredns:1.11"}}}
+	r, _, _ := testResolver(t, src)
+
+	assert.Equal(t, Info{ContainerID: "c-dns", ContainerName: "coredns", ImageName: "coredns/coredns", ImageTag: "1.11"},
+		r.Info(Process{ContainerID: "c-dns"}), "a remote address of a local container")
+	assert.Equal(t, Info{}, r.Info(Process{}))
+}

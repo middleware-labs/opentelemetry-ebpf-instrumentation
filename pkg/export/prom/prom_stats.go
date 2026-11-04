@@ -46,6 +46,7 @@ type statMetricsReporter struct {
 	tcpECNCEPackets          *Expirer[prometheus.Counter]
 	tcpReorderingEvents      *Expirer[prometheus.Counter]
 	tcpOutOfOrderPackets     *Expirer[prometheus.Counter]
+	tcpCongestionEvents      *Expirer[prometheus.Counter]
 	dnsLookupDuration        *Expirer[prometheus.Histogram]
 	socketBytes              *Expirer[prometheus.Counter]
 	socketPackets            *Expirer[prometheus.Counter]
@@ -62,6 +63,7 @@ type statMetricsReporter struct {
 	tcpECNCEPacketsAttrs          []attributes.Field[*ebpf.Stat, string]
 	tcpReorderingEventsAttrs      []attributes.Field[*ebpf.Stat, string]
 	tcpOutOfOrderPacketsAttrs     []attributes.Field[*ebpf.Stat, string]
+	tcpCongestionEventsAttrs      []attributes.Field[*ebpf.Stat, string]
 	dnsLookupDurationAttrs        []attributes.Field[*ebpf.Stat, string]
 	socketBytesAttrs              []attributes.Field[*ebpf.Stat, string]
 	socketPacketsAttrs            []attributes.Field[*ebpf.Stat, string]
@@ -241,7 +243,10 @@ func newStatsReporter(
 		mr.tcpOutOfOrderPacketsAttrs, mr.tcpOutOfOrderPackets = newCounter(attributes.StatTCPOutOfOrderPackets,
 			"counts TCP packets received out of order")
 
-		register = append(register, mr.tcpECNCEPackets, mr.tcpReorderingEvents, mr.tcpOutOfOrderPackets)
+		mr.tcpCongestionEventsAttrs, mr.tcpCongestionEvents = newCounter(attributes.StatTCPCongestionEvents,
+			"counts the times a TCP socket entered loss (rto) or fast recovery (recovery), read from the socket traffic rows")
+
+		register = append(register, mr.tcpECNCEPackets, mr.tcpReorderingEvents, mr.tcpOutOfOrderPackets, mr.tcpCongestionEvents)
 	}
 
 	if cfg.CommonCfg.Features.StatsDNSLookups() {
@@ -316,6 +321,7 @@ func (r *statMetricsReporter) collectMetrics(_ context.Context) {
 			r.observeTCPIo(stat)
 			r.observeTCPFlowControl(stat)
 			r.observeTCPCongestion(stat)
+			r.observeTCPCongestionEvents(stat)
 			r.observeDNSLookupDuration(stat)
 			r.observeSocketTraffic(stat)
 		}
@@ -378,6 +384,14 @@ func (r *statMetricsReporter) observeTCPFlowControl(stat *ebpf.Stat) {
 		return
 	}
 	r.tcpFlowControl.WithLabelValues(labelValues(stat, r.tcpFlowControlAttrs)...).
+		Metric.Add(float64(stat.Events()))
+}
+
+func (r *statMetricsReporter) observeTCPCongestionEvents(stat *ebpf.Stat) {
+	if r.tcpCongestionEvents == nil || stat.TCPCongestionEvent == nil {
+		return
+	}
+	r.tcpCongestionEvents.WithLabelValues(labelValues(stat, r.tcpCongestionEventsAttrs)...).
 		Metric.Add(float64(stat.Events()))
 }
 

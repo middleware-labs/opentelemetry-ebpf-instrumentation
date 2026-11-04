@@ -45,7 +45,9 @@ typedef struct socket_traffic {
     u32 retrans_timeout;
     u32 retrans_other;
     u32 zero_window_probes;
-    u32 srtt_us; // the latest smoothed RTT
+    u32 rto_count;      // tcp_enter_loss calls, like Datadog's rto_count
+    u32 recovery_count; // tcp_enter_recovery calls, like Datadog's recovery_count
+    u32 srtt_us;        // the latest smoothed RTT
     // socket totals minus the bases, like the packets
     u32 delivered_ce;
     u32 reord_seen;
@@ -56,7 +58,10 @@ typedef struct socket_traffic {
     u32 pid;
     enum tcp_handshake_role role;
     u8 rx_base_set; // rx_read_base is set by the first read of the connection
-    u8 _pad[2];
+    // the failed connections of the row, like Datadog's failure_reason: a row is one connection,
+    // which fails once
+    enum tcp_fail_reason fail_reason;
+    u8 failures;
 } socket_traffic_t;
 
 // The final row of a closed socket, sent through socket_traffic_closed

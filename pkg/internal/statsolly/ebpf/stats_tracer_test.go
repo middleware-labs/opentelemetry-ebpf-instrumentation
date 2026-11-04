@@ -409,7 +409,7 @@ func TestStatsSpecSocketTrafficPrograms(t *testing.T) {
 
 func TestSocketTrafficOptionalProbes(t *testing.T) {
 	optional := map[string]bool{}
-	for _, p := range append(udpBindProbes(&StatsObjects{}, true), socketTrafficProbes(&StatsObjects{}, true, true)...) {
+	for _, p := range append(udpBindProbes(&StatsObjects{}, true), socketTrafficProbes(&StatsObjects{}, true, true, true)...) {
 		assert.True(t, p.enabled)
 		if p.optional {
 			optional[p.name] = true
