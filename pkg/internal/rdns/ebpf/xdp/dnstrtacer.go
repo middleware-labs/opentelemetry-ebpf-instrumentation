@@ -80,19 +80,28 @@ func newTracer(ebpfCfg *config.EBPFTracer) (*tracer, error) {
 	log := log()
 
 	for i := range ifaces {
-		link, err := link.AttachXDP(link.XDPOptions{
+		l, err := link.AttachXDP(link.XDPOptions{
 			Program:   tracer.bpfObjects.DnsResponseTracker,
 			Interface: ifaces[i].Index,
 		})
 		if err != nil {
-			log.Debug("failed to attach XDP program to interface",
+			log.Warn("native XDP attach failed, trying generic mode",
+				"interface", ifaces[i].Name, "error", err)
+			l, err = link.AttachXDP(link.XDPOptions{
+				Program:   tracer.bpfObjects.DnsResponseTracker,
+				Interface: ifaces[i].Index,
+				Flags:     link.XDPGenericMode,
+			})
+		}
+		if err != nil {
+			log.Warn("failed to attach XDP program to interface",
 				"interface", ifaces[i].Name, "error", err)
 			continue
 		}
 
 		log.Debug("attached to interface", "interface", ifaces[i].Name)
 
-		tracer.links = append(tracer.links, &link)
+		tracer.links = append(tracer.links, &l)
 	}
 
 	if len(tracer.links) == 0 {

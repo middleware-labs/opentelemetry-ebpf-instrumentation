@@ -11,6 +11,7 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 
@@ -126,6 +127,19 @@ func StatMetricsExporterProvider(
 	}
 }
 
+// deltaExporter makes the SDK send each interval's increase for obi.stat.*,
+// so a new series' first value is not lost.
+type deltaExporter struct{ sdkmetric.Exporter }
+
+func (e deltaExporter) Temporality(kind sdkmetric.InstrumentKind) metricdata.Temporality {
+	switch kind {
+	case sdkmetric.InstrumentKindCounter, sdkmetric.InstrumentKindHistogram:
+		return metricdata.DeltaTemporality
+	default:
+		return e.Exporter.Temporality(kind)
+	}
+}
+
 func newStatMetricsExporter(
 	ctx context.Context,
 	ctxInfo *global.ContextInfo,
@@ -139,7 +153,7 @@ func newStatMetricsExporter(
 		log.Error("can't instantiate metrics exporter", "error", err)
 		return nil, err
 	}
-	exporter = instrumentMetricsExporter(ctxInfo.Metrics, exporter)
+	exporter = instrumentMetricsExporter(ctxInfo.Metrics, deltaExporter{exporter})
 
 	resource := createFilteredStatsResource(ctxInfo.NodeMeta.HostID, cfg.SelectorCfg.SelectionCfg)
 	provider := newStatMeterProvider(resource, &exporter, cfg.Metrics.Interval, cfg.Metrics)

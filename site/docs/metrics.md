@@ -1397,6 +1397,7 @@ Payload bytes that the applications send and read on their TCP and UDP sockets, 
 | `network.transport` | enum | `recommended` | stable | [OSI transport layer](https://wikipedia.org/wiki/Transport_layer) or [inter-process communication method](https://wikipedia.org/wiki/Inter-process_communication). | tcp; udp |
 | `obi.ip` | string | `opt_in` | development | IP address of the host running OBI. | 10.0.0.5 |
 | `server.port` | int | `opt_in` | stable | Server port number. | 80; 8080; 443 |
+| `server.pre_nat.port` | int | `opt_in` | development | Port the client connected to before NAT, on the server side of a translated connection: a published port or a NodePort, while `server.port` is the port of the socket. Never set on the client side, whose own port before NAT is ephemeral, nor when `src.pre_nat.address` is not set. | 8044 |
 | `service.name` | string | `opt_in` | stable | Logical name of the service. | shoppingcart |
 | `service.namespace` | string | `opt_in` | stable | A namespace for `service.name`. | Shop |
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
@@ -1505,6 +1506,7 @@ TCP segments and UDP datagrams sent and received by the applications' sockets, c
 | `network.transport` | enum | `recommended` | stable | [OSI transport layer](https://wikipedia.org/wiki/Transport_layer) or [inter-process communication method](https://wikipedia.org/wiki/Inter-process_communication). | tcp; udp |
 | `obi.ip` | string | `opt_in` | development | IP address of the host running OBI. | 10.0.0.5 |
 | `server.port` | int | `opt_in` | stable | Server port number. | 80; 8080; 443 |
+| `server.pre_nat.port` | int | `opt_in` | development | Port the client connected to before NAT, on the server side of a translated connection: a published port or a NodePort, while `server.port` is the port of the socket. Never set on the client side, whose own port before NAT is ephemeral, nor when `src.pre_nat.address` is not set. | 8044 |
 | `service.name` | string | `opt_in` | stable | Logical name of the service. | shoppingcart |
 | `service.namespace` | string | `opt_in` | stable | A namespace for `service.name`. | Shop |
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
@@ -1559,6 +1561,7 @@ Count of TCP connections that reached the closed state, including failed connect
 | `network.tcp.handshake.role` | enum | `opt_in` | development | Role of the local endpoint in the TCP three-way handshake (`client` initiated the SYN, `server` was awaiting it). | client; server; unknown |
 | `obi.ip` | string | `opt_in` | development | IP address of the host running OBI. | 10.0.0.5 |
 | `server.port` | int | `opt_in` | stable | Server port number. | 80; 8080; 443 |
+| `server.pre_nat.port` | int | `opt_in` | development | Port the client connected to before NAT, on the server side of a translated connection: a published port or a NodePort, while `server.port` is the port of the socket. Never set on the client side, whose own port before NAT is ephemeral, nor when `src.pre_nat.address` is not set. | 8044 |
 | `service.name` | string | `opt_in` | stable | Logical name of the service. | shoppingcart |
 | `service.namespace` | string | `opt_in` | stable | A namespace for `service.name`. | Shop |
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
@@ -1614,6 +1617,7 @@ Count of TCP congestion events, like Datadog's Retransmit Timeouts and Fast Reco
 | `network.tcp.handshake.role` | enum | `opt_in` | development | Role of the local endpoint in the TCP three-way handshake (`client` initiated the SYN, `server` was awaiting it). | client; server; unknown |
 | `obi.ip` | string | `opt_in` | development | IP address of the host running OBI. | 10.0.0.5 |
 | `server.port` | int | `opt_in` | stable | Server port number. | 80; 8080; 443 |
+| `server.pre_nat.port` | int | `opt_in` | development | Port the client connected to before NAT, on the server side of a translated connection: a published port or a NodePort, while `server.port` is the port of the socket. Never set on the client side, whose own port before NAT is ephemeral, nor when `src.pre_nat.address` is not set. | 8044 |
 | `service.name` | string | `opt_in` | stable | Logical name of the service. | shoppingcart |
 | `service.namespace` | string | `opt_in` | stable | A namespace for `service.name`. | Shop |
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
@@ -1668,6 +1672,7 @@ Count of sent TCP packets that a router on the path marked as ECN congestion exp
 | `network.tcp.handshake.role` | enum | `opt_in` | development | Role of the local endpoint in the TCP three-way handshake (`client` initiated the SYN, `server` was awaiting it). | client; server; unknown |
 | `obi.ip` | string | `opt_in` | development | IP address of the host running OBI. | 10.0.0.5 |
 | `server.port` | int | `opt_in` | stable | Server port number. | 80; 8080; 443 |
+| `server.pre_nat.port` | int | `opt_in` | development | Port the client connected to before NAT, on the server side of a translated connection: a published port or a NodePort, while `server.port` is the port of the socket. Never set on the client side, whose own port before NAT is ephemeral, nor when `src.pre_nat.address` is not set. | 8044 |
 | `service.name` | string | `opt_in` | stable | Logical name of the service. | shoppingcart |
 | `service.namespace` | string | `opt_in` | stable | A namespace for `service.name`. | Shop |
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
@@ -1723,6 +1728,7 @@ Count of TCP connections that failed to establish, broken down by `reason`.
 | `obi.ip` | string | `opt_in` | development | IP address of the host running OBI. | 10.0.0.5 |
 | `reason` | enum | `opt_in` | development | Classification of why a TCP connection failed. | refused; reset; timed-out; host-unreachable; net-unreachable; other; unknown |
 | `server.port` | int | `opt_in` | stable | Server port number. | 80; 8080; 443 |
+| `server.pre_nat.port` | int | `opt_in` | development | Port the client connected to before NAT, on the server side of a translated connection: a published port or a NodePort, while `server.port` is the port of the socket. Never set on the client side, whose own port before NAT is ephemeral, nor when `src.pre_nat.address` is not set. | 8044 |
 | `service.name` | string | `opt_in` | stable | Logical name of the service. | shoppingcart |
 | `service.namespace` | string | `opt_in` | stable | A namespace for `service.name`. | Shop |
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
@@ -1778,6 +1784,7 @@ Count of TCP flow-control events. For `zero_window`, one event is one zero-windo
 | `network.tcp.handshake.role` | enum | `opt_in` | development | Role of the local endpoint in the TCP three-way handshake (`client` initiated the SYN, `server` was awaiting it). | client; server; unknown |
 | `obi.ip` | string | `opt_in` | development | IP address of the host running OBI. | 10.0.0.5 |
 | `server.port` | int | `opt_in` | stable | Server port number. | 80; 8080; 443 |
+| `server.pre_nat.port` | int | `opt_in` | development | Port the client connected to before NAT, on the server side of a translated connection: a published port or a NodePort, while `server.port` is the port of the socket. Never set on the client side, whose own port before NAT is ephemeral, nor when `src.pre_nat.address` is not set. | 8044 |
 | `service.name` | string | `opt_in` | stable | Logical name of the service. | shoppingcart |
 | `service.namespace` | string | `opt_in` | stable | A namespace for `service.name`. | Shop |
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
@@ -1833,6 +1840,7 @@ Count of bytes transferred at the socket layer per TCP connection, broken down b
 | `network.tcp.handshake.role` | enum | `opt_in` | development | Role of the local endpoint in the TCP three-way handshake (`client` initiated the SYN, `server` was awaiting it). | client; server; unknown |
 | `obi.ip` | string | `opt_in` | development | IP address of the host running OBI. | 10.0.0.5 |
 | `server.port` | int | `opt_in` | stable | Server port number. | 80; 8080; 443 |
+| `server.pre_nat.port` | int | `opt_in` | development | Port the client connected to before NAT, on the server side of a translated connection: a published port or a NodePort, while `server.port` is the port of the socket. Never set on the client side, whose own port before NAT is ephemeral, nor when `src.pre_nat.address` is not set. | 8044 |
 | `service.name` | string | `opt_in` | stable | Logical name of the service. | shoppingcart |
 | `service.namespace` | string | `opt_in` | stable | A namespace for `service.name`. | Shop |
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
@@ -1887,6 +1895,7 @@ Count of TCP packets received out of order (with a gap before them). Read from t
 | `network.tcp.handshake.role` | enum | `opt_in` | development | Role of the local endpoint in the TCP three-way handshake (`client` initiated the SYN, `server` was awaiting it). | client; server; unknown |
 | `obi.ip` | string | `opt_in` | development | IP address of the host running OBI. | 10.0.0.5 |
 | `server.port` | int | `opt_in` | stable | Server port number. | 80; 8080; 443 |
+| `server.pre_nat.port` | int | `opt_in` | development | Port the client connected to before NAT, on the server side of a translated connection: a published port or a NodePort, while `server.port` is the port of the socket. Never set on the client side, whose own port before NAT is ephemeral, nor when `src.pre_nat.address` is not set. | 8044 |
 | `service.name` | string | `opt_in` | stable | Logical name of the service. | shoppingcart |
 | `service.namespace` | string | `opt_in` | stable | A namespace for `service.name`. | Shop |
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
@@ -1941,6 +1950,7 @@ Count of TCP data packet reordering events detected by the sender from ACKs and 
 | `network.tcp.handshake.role` | enum | `opt_in` | development | Role of the local endpoint in the TCP three-way handshake (`client` initiated the SYN, `server` was awaiting it). | client; server; unknown |
 | `obi.ip` | string | `opt_in` | development | IP address of the host running OBI. | 10.0.0.5 |
 | `server.port` | int | `opt_in` | stable | Server port number. | 80; 8080; 443 |
+| `server.pre_nat.port` | int | `opt_in` | development | Port the client connected to before NAT, on the server side of a translated connection: a published port or a NodePort, while `server.port` is the port of the socket. Never set on the client side, whose own port before NAT is ephemeral, nor when `src.pre_nat.address` is not set. | 8044 |
 | `service.name` | string | `opt_in` | stable | Logical name of the service. | shoppingcart |
 | `service.namespace` | string | `opt_in` | stable | A namespace for `service.name`. | Shop |
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
@@ -1996,6 +2006,7 @@ Count of TCP retransmissions observed per connection.
 | `network.tcp.retransmit.type` | enum | `recommended` | development | Cause of a TCP retransmission: `timeout` when the retransmission timer expired, `fast` during fast recovery (duplicate ACKs or SACK), `other` for anything else (e.g. SYN retransmits, and the tail loss probes: the socket traffic rows add them when the connection closes). | timeout; fast; other |
 | `obi.ip` | string | `opt_in` | development | IP address of the host running OBI. | 10.0.0.5 |
 | `server.port` | int | `opt_in` | stable | Server port number. | 80; 8080; 443 |
+| `server.pre_nat.port` | int | `opt_in` | development | Port the client connected to before NAT, on the server side of a translated connection: a published port or a NodePort, while `server.port` is the port of the socket. Never set on the client side, whose own port before NAT is ephemeral, nor when `src.pre_nat.address` is not set. | 8044 |
 | `service.name` | string | `opt_in` | stable | Logical name of the service. | shoppingcart |
 | `service.namespace` | string | `opt_in` | stable | A namespace for `service.name`. | Shop |
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
@@ -2050,6 +2061,7 @@ Smoothed round-trip time observed per TCP connection.
 | `network.tcp.handshake.role` | enum | `opt_in` | development | Role of the local endpoint in the TCP three-way handshake (`client` initiated the SYN, `server` was awaiting it). | client; server; unknown |
 | `obi.ip` | string | `opt_in` | development | IP address of the host running OBI. | 10.0.0.5 |
 | `server.port` | int | `opt_in` | stable | Server port number. | 80; 8080; 443 |
+| `server.pre_nat.port` | int | `opt_in` | development | Port the client connected to before NAT, on the server side of a translated connection: a published port or a NodePort, while `server.port` is the port of the socket. Never set on the client side, whose own port before NAT is ephemeral, nor when `src.pre_nat.address` is not set. | 8044 |
 | `service.name` | string | `opt_in` | stable | Logical name of the service. | shoppingcart |
 | `service.namespace` | string | `opt_in` | stable | A namespace for `service.name`. | Shop |
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
@@ -2104,6 +2116,7 @@ Count of TCP connections that completed the three-way handshake, broken down by 
 | `network.tcp.handshake.role` | enum | `opt_in` | development | Role of the local endpoint in the TCP three-way handshake (`client` initiated the SYN, `server` was awaiting it). | client; server; unknown |
 | `obi.ip` | string | `opt_in` | development | IP address of the host running OBI. | 10.0.0.5 |
 | `server.port` | int | `opt_in` | stable | Server port number. | 80; 8080; 443 |
+| `server.pre_nat.port` | int | `opt_in` | development | Port the client connected to before NAT, on the server side of a translated connection: a published port or a NodePort, while `server.port` is the port of the socket. Never set on the client side, whose own port before NAT is ephemeral, nor when `src.pre_nat.address` is not set. | 8044 |
 | `service.name` | string | `opt_in` | stable | Logical name of the service. | shoppingcart |
 | `service.namespace` | string | `opt_in` | stable | A namespace for `service.name`. | Shop |
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |

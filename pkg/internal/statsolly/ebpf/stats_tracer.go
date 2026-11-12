@@ -204,10 +204,12 @@ func NewStatsFetcher(
 	// OR across all consumer metrics: a single shared probe writes sock_role for all of them,
 	// so the probe is needed if any metric has the attribute enabled.
 	// Note: tcp successful connection probe derives role from oldstate and never reads sock_role
-	// server.port is the local or the remote port depending on the role
+	// server.port is the local or the remote port depending on the role, and server.pre_nat.port
+	// is only on the server side
 	selectsRole := func(metric attributes.Name, roleAttr attr.Name) bool {
 		selected := attrSel.For(metric)
-		return slices.Contains(selected, roleAttr) || slices.Contains(selected, attr.ServerPort)
+		return slices.Contains(selected, roleAttr) || slices.Contains(selected, attr.ServerPort) ||
+			slices.Contains(selected, attr.ServerPreNATPort)
 	}
 	connRoleAttrSelected := selectsRole(attributes.StatTCPRtt, attr.NetworkTCPHandshakeRole) ||
 		selectsRole(attributes.StatTCPFailedConnections, attr.NetworkTCPHandshakeRole) ||

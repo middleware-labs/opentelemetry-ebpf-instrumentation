@@ -198,6 +198,9 @@ type Endpoints struct {
 // the client's socket has them before NAT, the server's after it.
 type NAT struct {
 	Pre, Post Endpoints
+	// ServerPort is the port the client connected to, on the server side of the connection only,
+	// else 0
+	ServerPort uint16
 }
 
 // ServerPortOf returns the port of the server side of a connection seen from the socket with

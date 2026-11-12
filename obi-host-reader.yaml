@@ -81,6 +81,9 @@ extensions:
           obi.stat.tcp.out_of_order.packets:
             include: ["*"]
             exclude: [src.port, dst.port, src.container.id, dst.container.id]
+          obi.stat.tcp.congestion.events:
+            include: ["*"]
+            exclude: [src.port, dst.port, src.container.id, dst.container.id]
           obi.stat.dns.lookup.duration:
             include: ["*"]
             exclude: [src.port, dst.port, src.container.id, dst.container.id]

@@ -116,6 +116,18 @@ func TestServerPort(t *testing.T) {
 	assert.Equal(t, int64(5432), kv.Value.AsInt64())
 }
 
+func TestServerPreNATPort(t *testing.T) {
+	getter, ok := StatGetters(attr.ServerPreNATPort)
+	require.True(t, ok)
+
+	kv := getter(&Stat{NAT: &NAT{ServerPort: 8044}})
+	assert.Equal(t, string(attr.ServerPreNATPort), string(kv.Key))
+	assert.Equal(t, int64(8044), kv.Value.AsInt64())
+
+	assert.False(t, getter(&Stat{}).Valid(), "no NAT")
+	assert.False(t, getter(&Stat{NAT: &NAT{}}).Valid(), "not the server side")
+}
+
 func TestDNSLookupGetters(t *testing.T) {
 	errorType, ok := StatGetters(attr.ErrorType)
 	require.True(t, ok)

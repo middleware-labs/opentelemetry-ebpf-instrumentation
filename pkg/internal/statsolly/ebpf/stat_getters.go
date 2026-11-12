@@ -51,6 +51,13 @@ func StatGetters(name attr.Name) (attributes.Getter[*Stat, attribute.KeyValue], 
 			}
 			return attribute.String(string(attr.DstPreNATAddress), s.NAT.Pre.DstAddr.IP().String())
 		}
+	case attr.ServerPreNATPort:
+		getter = func(s *Stat) attribute.KeyValue {
+			if s.NAT == nil || s.NAT.ServerPort == 0 {
+				return attribute.KeyValue{}
+			}
+			return attribute.Int(string(attr.ServerPreNATPort), int(s.NAT.ServerPort))
+		}
 	case attr.SrcPort:
 		getter = func(s *Stat) attribute.KeyValue {
 			return attribute.Int(string(attr.SrcPort), int(s.Endpoints().SrcPort))

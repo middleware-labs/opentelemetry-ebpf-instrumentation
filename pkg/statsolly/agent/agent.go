@@ -178,7 +178,9 @@ func statsAgent(
 	if cfg.Metrics.Features.StatsSocketTraffic() || tcpRows {
 		warnSlowSocketTrafficReads(cfg)
 		emit := socktraffic.EmitFor(&cfg.Metrics.Features, tcpRows)
-		emit.ServerPort = attrSelected(cfg, rowMetrics(&cfg.Metrics.Features, tcpRows), attr.ServerPort)
+		// server.pre_nat.port needs the role of the rows, like server.port
+		emit.ServerPort = attrSelected(cfg, rowMetrics(&cfg.Metrics.Features, tcpRows), attr.ServerPort) ||
+			attrSelected(cfg, rowMetrics(&cfg.Metrics.Features, tcpRows), attr.ServerPreNATPort)
 		emit.Role = attrSelected(cfg, socketTrafficMetrics(&cfg.Metrics.Features), attr.NetworkConnectionRole) ||
 			tcpRows && attrSelected(cfg, tcpStatMetrics(&cfg.Metrics.Features), attr.NetworkTCPHandshakeRole)
 		var natTracker *nat.Tracker
@@ -332,7 +334,7 @@ func dstProcessAttrsSelected(cfg *obi.Config, tcpRows bool) bool {
 // natAttrs report the endpoints of the socket traffic rows after NAT, or before it
 var natAttrs = []attr.Name{
 	attr.SrcAddress, attr.DstAddress, attr.SrcPort, attr.DstPort, attr.ServerPort,
-	attr.SrcPreNATAddress, attr.DstPreNATAddress,
+	attr.SrcPreNATAddress, attr.DstPreNATAddress, attr.ServerPreNATPort,
 }
 
 // natSelected tells whether the metrics of the socket traffic rows report an address or a port,

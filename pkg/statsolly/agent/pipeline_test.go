@@ -451,6 +451,9 @@ func TestAttrSelected(t *testing.T) {
 	assert.True(t, attrSelected(cfg, socketTrafficMetrics(&cfg.Metrics.Features), attr.NetworkConnectionRole))
 	assert.False(t, attrSelected(cfg, socketTrafficMetrics(&cfg.Metrics.Features), attr.ServerPort))
 
+	cfg = selecting(export.FeatureStatsSocketBytes, attributes.StatSocketBytes.Section, "server.pre_nat.port")
+	assert.True(t, natSelected(cfg, false), "it needs the translations")
+
 	cfg = selecting(export.FeatureStats, attributes.StatTCPRtt.Section, "network.peer.same_host")
 	assert.True(t, sameHostSelected(cfg, true))
 	assert.False(t, sameHostSelected(cfg, false), "the TCP stats are events")

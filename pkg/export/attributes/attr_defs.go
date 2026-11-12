@@ -923,6 +923,7 @@ func getDefinitions(
 				attr.NetworkPeerSameHost:     false,
 				attr.SrcPreNATAddress:        false,
 				attr.DstPreNATAddress:        false,
+				attr.ServerPreNATPort:        false,
 			},
 		},
 		StatTCPFailedConnections.Section: {
@@ -933,6 +934,7 @@ func getDefinitions(
 				attr.NetworkPeerSameHost:       false,
 				attr.SrcPreNATAddress:          false,
 				attr.DstPreNATAddress:          false,
+				attr.ServerPreNATPort:          false,
 			},
 		},
 		StatTCPRetransmits.Section: {
@@ -943,6 +945,7 @@ func getDefinitions(
 				attr.NetworkPeerSameHost:      false,
 				attr.SrcPreNATAddress:         false,
 				attr.DstPreNATAddress:         false,
+				attr.ServerPreNATPort:         false,
 			},
 		},
 		StatTCPIo.Section: {
@@ -953,6 +956,7 @@ func getDefinitions(
 				attr.NetworkPeerSameHost:     false,
 				attr.SrcPreNATAddress:        false,
 				attr.DstPreNATAddress:        false,
+				attr.ServerPreNATPort:        false,
 			},
 		},
 		StatTCPSuccessfulConnections.Section: {
@@ -962,6 +966,7 @@ func getDefinitions(
 				attr.NetworkPeerSameHost:     false,
 				attr.SrcPreNATAddress:        false,
 				attr.DstPreNATAddress:        false,
+				attr.ServerPreNATPort:        false,
 			},
 		},
 		StatTCPClosedConnections.Section: {
@@ -971,6 +976,7 @@ func getDefinitions(
 				attr.NetworkPeerSameHost:     false,
 				attr.SrcPreNATAddress:        false,
 				attr.DstPreNATAddress:        false,
+				attr.ServerPreNATPort:        false,
 			},
 		},
 		StatTCPFlowControlEvents.Section: {
@@ -981,6 +987,7 @@ func getDefinitions(
 				attr.NetworkPeerSameHost:        false,
 				attr.SrcPreNATAddress:           false,
 				attr.DstPreNATAddress:           false,
+				attr.ServerPreNATPort:           false,
 			},
 		},
 		StatTCPECNCEPackets.Section: {
@@ -990,6 +997,7 @@ func getDefinitions(
 				attr.NetworkPeerSameHost:     false,
 				attr.SrcPreNATAddress:        false,
 				attr.DstPreNATAddress:        false,
+				attr.ServerPreNATPort:        false,
 			},
 		},
 		StatTCPReorderingEvents.Section: {
@@ -999,6 +1007,7 @@ func getDefinitions(
 				attr.NetworkPeerSameHost:     false,
 				attr.SrcPreNATAddress:        false,
 				attr.DstPreNATAddress:        false,
+				attr.ServerPreNATPort:        false,
 			},
 		},
 		StatTCPOutOfOrderPackets.Section: {
@@ -1008,6 +1017,7 @@ func getDefinitions(
 				attr.NetworkPeerSameHost:     false,
 				attr.SrcPreNATAddress:        false,
 				attr.DstPreNATAddress:        false,
+				attr.ServerPreNATPort:        false,
 			},
 		},
 		StatTCPCongestionEvents.Section: {
@@ -1018,6 +1028,7 @@ func getDefinitions(
 				attr.NetworkPeerSameHost:       false,
 				attr.SrcPreNATAddress:          false,
 				attr.DstPreNATAddress:          false,
+				attr.ServerPreNATPort:          false,
 			},
 		},
 		StatSocketBytes.Section: {
@@ -1029,6 +1040,7 @@ func getDefinitions(
 				attr.NetworkPeerSameHost:   false,
 				attr.SrcPreNATAddress:      false,
 				attr.DstPreNATAddress:      false,
+				attr.ServerPreNATPort:      false,
 			},
 		},
 		StatSocketPackets.Section: {
@@ -1040,6 +1052,7 @@ func getDefinitions(
 				attr.NetworkPeerSameHost:   false,
 				attr.SrcPreNATAddress:      false,
 				attr.DstPreNATAddress:      false,
+				attr.ServerPreNATPort:      false,
 			},
 		},
 		StatDNSLookupDuration.Section: {

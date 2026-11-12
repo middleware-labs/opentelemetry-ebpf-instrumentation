@@ -410,6 +410,10 @@ const (
 	// network.client.pre_nat.ip: src.address and dst.address are the ones after it
 	SrcPreNATAddress = Name("src.pre_nat.address")
 	DstPreNATAddress = Name("dst.pre_nat.address")
+	// ServerPreNATPort is the port the client connected to, on the server side of a translated
+	// connection (a published port, a NodePort). Not on the client side, whose own port before
+	// NAT is ephemeral
+	ServerPreNATPort = Name("server.pre_nat.port")
 
 	// The process and container of each side of the socket traffic metrics: src is the local
 	// socket, dst the remote one when it is on the same host.

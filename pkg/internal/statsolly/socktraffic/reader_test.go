@@ -580,6 +580,105 @@ func TestReaderRollupKeepsTheNAT(t *testing.T) {
 	assert.Equal(t, "172.29.0.20", attrValue(t, stats[0], attr.SrcPreNATAddress))
 }
 
+// publishedNAT is the translation of a client of another host that connected to a published port
+func publishedNAT(publishedPort, clientPort uint16) *ebpf.NAT {
+	return &ebpf.NAT{
+		Pre:  endpointsOf("10.60.2.10", publishedPort, "10.60.2.20", clientPort),
+		Post: endpointsOf("172.29.0.44", 8080, "10.60.2.20", clientPort),
+	}
+}
+
+func TestReaderServerPreNATPort(t *testing.T) {
+	now := time.Hour
+	r, _ := testReader(t, &fakeMap{batchLen: 10}, &now)
+	nat := fakeNAT{}
+	setNAT(r, nat)
+	server := row{Role: ebpf.StatsTcpHandshakeRoleRoleServer}
+	statOf := func(k *key, v *row) *ebpf.Stat {
+		stats := r.rowStats(nil, k, v, uint8(v.Role), totals{txBytes: 10}, false)
+		require.Len(t, stats, 1)
+		return stats[0]
+	}
+
+	published := tcpConnKey("172.29.0.44", 8080, "10.60.2.20", 50000)
+	nat[published] = publishedNAT(8044, 50000)
+	s := statOf(&published, &server)
+	assert.Equal(t, "8044", attrValue(t, s, attr.ServerPreNATPort))
+	assert.Equal(t, "10.60.2.10", attrValue(t, s, attr.SrcPreNATAddress))
+
+	// published on the same port: the address still differs
+	samePort := tcpConnKey("172.29.0.44", 8080, "10.60.2.20", 50001)
+	nat[samePort] = publishedNAT(8080, 50001)
+	assert.Equal(t, "8080", attrValue(t, statOf(&samePort, &server), attr.ServerPreNATPort))
+
+	noPort := tcpConnKey("172.29.0.44", 8080, "10.60.2.20", 50002)
+	nat[noPort] = publishedNAT(0, 50002)
+	assert.Empty(t, attrValue(t, statOf(&noPort, &server), attr.ServerPreNATPort))
+
+	noNAT := tcpConnKey("172.29.0.44", 8080, "10.60.2.20", 50003)
+	assert.Empty(t, attrValue(t, statOf(&noNAT, &server), attr.ServerPreNATPort))
+
+	masqueraded := tcpConnKey("172.29.0.20", 40000, "10.66.1.164", 80)
+	nat[masqueraded] = &ebpf.NAT{
+		Pre:  endpointsOf("172.29.0.20", 40000, "10.66.1.164", 80),
+		Post: endpointsOf("139.59.42.32", 41000, "10.66.1.164", 80),
+	}
+	client := row{Role: ebpf.StatsTcpHandshakeRoleRoleClient}
+	s = statOf(&masqueraded, &client)
+	assert.Empty(t, attrValue(t, s, attr.ServerPreNATPort), "the port of a client is ephemeral")
+	assert.Equal(t, "172.29.0.20", attrValue(t, s, attr.SrcPreNATAddress))
+}
+
+func TestReaderServerPreNATPortOfAKeptTranslation(t *testing.T) {
+	now := time.Hour
+	r, _ := testReader(t, &fakeMap{batchLen: 10}, &now)
+	nat := fakeNAT{}
+	setNAT(r, nat)
+	k := tcpConnKey("172.29.0.44", 8080, "10.60.2.20", 50000)
+	nat[k] = publishedNAT(8044, 50000)
+
+	server := row{Role: ebpf.StatsTcpHandshakeRoleRoleServer}
+	first := r.rowStats(nil, &k, &server, uint8(server.Role), totals{txBytes: 10}, false)
+	require.Len(t, first, 1)
+
+	// its conntrack entry is evicted, and a client connection reuses the addresses
+	delete(nat, k)
+	client := row{Role: ebpf.StatsTcpHandshakeRoleRoleClient}
+	second := r.rowStats(nil, &k, &client, uint8(client.Role), totals{txBytes: 10}, false)
+	require.Len(t, second, 1)
+	assert.Empty(t, attrValue(t, second[0], attr.ServerPreNATPort))
+	assert.Equal(t, "8044", attrValue(t, first[0], attr.ServerPreNATPort), "the stats already sent do not change")
+}
+
+func TestReaderRollupKeepsTheServerPreNATPort(t *testing.T) {
+	now := time.Hour
+	r, _ := testReader(t, &fakeMap{batchLen: 10}, &now)
+	r.rollup = newConnectionRollup()
+	r.peers = newPeerIndex(time.Minute)
+	nat := fakeNAT{}
+	setNAT(r, nat)
+	server := row{Role: ebpf.StatsTcpHandshakeRoleRoleServer, TxBytes: 10}
+
+	// a client address translated too, so the closed connections are merged at once: two client
+	// ports to one published port, one to another port published for the same socket
+	for _, c := range []struct{ published, clientPort uint16 }{{8044, 50000}, {8044, 50001}, {8045, 50002}} {
+		k := tcpConnKey("172.29.0.44", 8080, "10.60.2.1", c.clientPort)
+		nat[k] = &ebpf.NAT{
+			Pre:  endpointsOf("10.60.2.10", c.published, "10.60.2.20", c.clientPort+1000),
+			Post: endpointsOf("172.29.0.44", 8080, "10.60.2.1", c.clientPort),
+		}
+		r.appendClosedStats(nil, &k, &server, totals{txBytes: 10, txPackets: 1})
+	}
+	stats := r.flushClosed(nil, now)
+	require.Len(t, stats, 2, "the client ports are merged, the published ports are not")
+	bytesByPort := map[string]uint64{}
+	for _, s := range stats {
+		bytesByPort[attrValue(t, s, attr.ServerPreNATPort)] = s.SocketTraffic.Bytes
+		assert.Equal(t, "0", attrValue(t, s, attr.DstPort), "the client port is dropped")
+	}
+	assert.Equal(t, map[string]uint64{"8044": 20, "8045": 10}, bytesByPort)
+}
+
 func TestReaderFindsTheBackendOfAService(t *testing.T) {
 	now := time.Hour
 	m := &fakeMap{batchLen: 10}

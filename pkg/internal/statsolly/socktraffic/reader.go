@@ -368,6 +368,7 @@ func (r *Reader) natOf(k *key, role uint8) *ebpf.NAT {
 		return nil
 	}
 	if n := r.nat.NAT(k, ebpf.NetworkTCPHandshakeRoleCode(role) == ebpf.CodeRoleClient); n != nil {
+		n.ServerPort = serverPreNATPort(n, role)
 		r.natRows[*k] = natRow{nat: n, seen: r.monoNow()}
 		return n
 	}
@@ -376,8 +377,24 @@ func (r *Reader) natOf(k *key, role uint8) *ebpf.NAT {
 		return nil
 	}
 	kept.seen, kept.closed = r.monoNow(), false
+	// a new connection with the same addresses can have another role. A copy: the stats already
+	// sent share the kept translation
+	if port := serverPreNATPort(kept.nat, role); port != kept.nat.ServerPort {
+		n := *kept.nat
+		n.ServerPort = port
+		kept.nat = &n
+	}
 	r.natRows[*k] = kept
 	return kept.nat
+}
+
+// serverPreNATPort is the port the client connected to on the server side of a connection. It
+// is 0 on the client side: its own port before NAT is ephemeral.
+func serverPreNATPort(n *ebpf.NAT, role uint8) uint16 {
+	if ebpf.NetworkTCPHandshakeRoleCode(role) == ebpf.CodeRoleServer {
+		return n.Pre.SrcPort
+	}
+	return 0
 }
 
 // dropIntraHostDNAT removes the translation of the server side of a connection whose client, a

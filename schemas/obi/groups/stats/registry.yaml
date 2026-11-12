@@ -83,6 +83,15 @@ attributes:
       address that a client connected to. Set only when the connection is translated;
       `dst.address` is then the address after NAT.
     examples: ["10.96.0.10"]
+  - key: server.pre_nat.port
+    type: int
+    stability: development
+    brief: >
+      Port the client connected to before NAT, on the server side of a translated connection:
+      a published port or a NodePort, while `server.port` is the port of the socket. Never set
+      on the client side, whose own port before NAT is ephemeral, nor when `src.pre_nat.address`
+      is not set.
+    examples: [8044]
   # Mirrors Datadog's IntraHost.
   - key: network.peer.same_host
     type: boolean
