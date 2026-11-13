@@ -52,6 +52,11 @@ Search for leftovers when done: `grep -rn '^<<<<<<<\|^>>>>>>>' --exclude-dir=.gi
   must use `readerCtx` too, or shutdown waits for them.
 - **`sock_role` lifetime.** Since upstream #4055 it is deleted at `tcp_destroy_sock`, not at
   `TCP_CLOSE`. Reader code that relied on the old order must be checked when this changes again.
+- **Local clang-format version.** The pre-commit hook formats staged C files with the local
+  `clang-format` (19 on the dev laptop), while CI uses the generator image's (22): they format some
+  lines differently (`int(*name)[val]` against `int (*name)[val]`). Commit merges with
+  `CLANG_FORMAT=true git commit ...` so the hook leaves upstream files alone, and format the
+  fork's own C files with `make docker-clang-format CLANG_FORMAT_FILES="..."`.
 - **Removed upstream APIs.** Upstream removed `PrometheusConfig.Registry`: tests use
   `testutil.NewPrometheusServer(t)`.
 
