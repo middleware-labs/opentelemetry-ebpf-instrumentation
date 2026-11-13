@@ -558,6 +558,8 @@ func (c *Config) UnmarshalMap(raw map[string]any) error {
 		return err
 	}
 	c.normalizeV1ResolverSources()
+	// like LoadConfig: the selection keys must match the normalized metric sections
+	c.Attributes.Select.Normalize()
 	return nil
 }
 

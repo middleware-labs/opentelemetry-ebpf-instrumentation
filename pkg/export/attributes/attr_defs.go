@@ -119,7 +119,6 @@ func getDefinitions(
 			attr.DstAddress: true,
 			attr.SrcPort:    false,
 			attr.DstPort:    false,
-			attr.ServerPort: false,
 			attr.SrcName:    false,
 			attr.DstName:    false,
 			attr.SrcZone:    false,
@@ -202,6 +201,16 @@ func getDefinitions(
 			attr.DstContainerImageTag:     false,
 			attr.SrcContainerID:           false,
 			attr.DstContainerID:           false,
+		},
+		nil,
+	)
+	// the server port of the stats that know the server side of their connection: not the DNS
+	// lookups nor the TCP resets
+	statsServerPortAttributes := NewAttrReportGroup(
+		false,
+		nil,
+		map[attr.Name]Default{
+			attr.ServerPort: false,
 		},
 		nil,
 	)
@@ -973,7 +982,7 @@ func getDefinitions(
 			Attributes: map[attr.Name]Default{},
 		},
 		StatTCPRtt.Section: {
-			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes},
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes, &statsServerPortAttributes},
 			Attributes: map[attr.Name]Default{
 				attr.NetworkTCPHandshakeRole: false,
 				attr.NetworkPeerSameHost:     false,
@@ -983,7 +992,7 @@ func getDefinitions(
 			},
 		},
 		StatTCPFailedConnections.Section: {
-			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes},
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes, &statsServerPortAttributes},
 			Attributes: map[attr.Name]Default{
 				attr.TCPFailedConnectionReason: false,
 				attr.NetworkTCPHandshakeRole:   false,
@@ -994,7 +1003,7 @@ func getDefinitions(
 			},
 		},
 		StatTCPRetransmits.Section: {
-			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes},
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes, &statsServerPortAttributes},
 			Attributes: map[attr.Name]Default{
 				attr.NetworkTCPRetransmitType: true,
 				attr.NetworkTCPHandshakeRole:  false,
@@ -1005,7 +1014,7 @@ func getDefinitions(
 			},
 		},
 		StatTCPIo.Section: {
-			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes},
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes, &statsServerPortAttributes},
 			Attributes: map[attr.Name]Default{
 				attr.NetworkIoDirection:      true,
 				attr.NetworkTCPHandshakeRole: false,
@@ -1016,7 +1025,7 @@ func getDefinitions(
 			},
 		},
 		StatTCPSuccessfulConnections.Section: {
-			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes},
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes, &statsServerPortAttributes},
 			Attributes: map[attr.Name]Default{
 				attr.NetworkTCPHandshakeRole: false,
 				attr.NetworkPeerSameHost:     false,
@@ -1026,7 +1035,7 @@ func getDefinitions(
 			},
 		},
 		StatTCPClosedConnections.Section: {
-			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes},
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes, &statsServerPortAttributes},
 			Attributes: map[attr.Name]Default{
 				attr.NetworkTCPHandshakeRole: false,
 				attr.NetworkPeerSameHost:     false,
@@ -1036,7 +1045,7 @@ func getDefinitions(
 			},
 		},
 		StatTCPFlowControlEvents.Section: {
-			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes},
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes, &statsServerPortAttributes},
 			Attributes: map[attr.Name]Default{
 				attr.NetworkTCPFlowControlEvent: true,
 				attr.NetworkTCPHandshakeRole:    false,
@@ -1047,7 +1056,7 @@ func getDefinitions(
 			},
 		},
 		StatTCPECNCEPackets.Section: {
-			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes},
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes, &statsServerPortAttributes},
 			Attributes: map[attr.Name]Default{
 				attr.NetworkTCPHandshakeRole: false,
 				attr.NetworkPeerSameHost:     false,
@@ -1057,7 +1066,7 @@ func getDefinitions(
 			},
 		},
 		StatTCPReorderingEvents.Section: {
-			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes},
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes, &statsServerPortAttributes},
 			Attributes: map[attr.Name]Default{
 				attr.NetworkTCPHandshakeRole: false,
 				attr.NetworkPeerSameHost:     false,
@@ -1067,7 +1076,7 @@ func getDefinitions(
 			},
 		},
 		StatTCPOutOfOrderPackets.Section: {
-			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes},
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes, &statsServerPortAttributes},
 			Attributes: map[attr.Name]Default{
 				attr.NetworkTCPHandshakeRole: false,
 				attr.NetworkPeerSameHost:     false,
@@ -1077,7 +1086,7 @@ func getDefinitions(
 			},
 		},
 		StatTCPCongestionEvents.Section: {
-			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes},
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes, &statsServerPortAttributes},
 			Attributes: map[attr.Name]Default{
 				attr.NetworkTCPCongestionEvent: true,
 				attr.NetworkTCPHandshakeRole:   false,
@@ -1088,7 +1097,7 @@ func getDefinitions(
 			},
 		},
 		StatSocketBytes.Section: {
-			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes},
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes, &statsServerPortAttributes},
 			Attributes: map[attr.Name]Default{
 				attr.NetworkTransport:      true,
 				attr.NetworkIoDirection:    true,
@@ -1100,7 +1109,7 @@ func getDefinitions(
 			},
 		},
 		StatSocketPackets.Section: {
-			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes},
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes, &statsServerPortAttributes},
 			Attributes: map[attr.Name]Default{
 				attr.NetworkTransport:      true,
 				attr.NetworkIoDirection:    true,

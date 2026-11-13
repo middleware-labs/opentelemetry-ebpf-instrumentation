@@ -2157,3 +2157,49 @@ func TestConfigV1IgnoresAzure(t *testing.T) {
 	require.NoError(t, cfg.UnmarshalMap(map[string]any{"name_resolver": map[string]any{"sources": []any{"azure", "rdns"}}}))
 	require.Equal(t, []transform.Source{transform.SourceRDNS}, cfg.NameResolver.Sources)
 }
+
+// cnmStatMetrics are the stat metrics of the Cloud Network Monitoring receiver config
+var cnmStatMetrics = []attributes.Name{
+	attributes.StatSocketBytes, attributes.StatSocketPackets, attributes.StatTCPRtt,
+	attributes.StatTCPRetransmits, attributes.StatTCPFailedConnections, attributes.StatTCPSuccessfulConnections,
+	attributes.StatTCPClosedConnections, attributes.StatTCPFlowControlEvents, attributes.StatTCPECNCEPackets,
+	attributes.StatTCPReorderingEvents, attributes.StatTCPOutOfOrderPackets, attributes.StatTCPCongestionEvents,
+	attributes.StatDNSLookupDuration,
+}
+
+// TestStatSelectionReceiverAndStandalone checks that a selection keyed by the OTEL or the
+// Prometheus metric names applies to every stat metric, whether the config comes from a file
+// (standalone) or from the Collector receiver (UnmarshalMap)
+func TestStatSelectionReceiverAndStandalone(t *testing.T) {
+	keys := map[string]func(attributes.Name) string{
+		"otel":       func(n attributes.Name) string { return n.OTEL },
+		"prometheus": func(n attributes.Name) string { return n.Prom },
+	}
+	for keyName, key := range keys {
+		selection := map[string]any{}
+		var yamlSelection strings.Builder
+		yamlSelection.WriteString("attributes:\n  select:\n")
+		for _, n := range cnmStatMetrics {
+			selection[key(n)] = map[string]any{"include": []any{"*"}, "exclude": []any{"src.port", "dst.port"}}
+			yamlSelection.WriteString("    " + key(n) + ":\n      include: [\"*\"]\n      exclude: [src.port, dst.port]\n")
+		}
+
+		receiver := DefaultConfig
+		receiver.Attributes.Select = nil
+		require.NoError(t, receiver.UnmarshalMap(map[string]any{"attributes": map[string]any{"select": selection}}))
+
+		standalone, err := LoadConfig(strings.NewReader(yamlSelection.String()))
+		require.NoError(t, err)
+
+		for mode, cfg := range map[string]*Config{"receiver": &receiver, "standalone": standalone} {
+			selector, err := attributes.NewAttrSelector(attributes.GroupStats, &attributes.SelectorConfig{SelectionCfg: cfg.Attributes.Select})
+			require.NoError(t, err)
+			for _, n := range cnmStatMetrics {
+				got := selector.For(n)
+				assert.Contains(t, got, attr.DstName, "%s %s keys: %s", mode, keyName, n.OTEL)
+				assert.NotContains(t, got, attr.SrcPort, "%s %s keys: %s", mode, keyName, n.OTEL)
+				assert.NotContains(t, got, attr.DstPort, "%s %s keys: %s", mode, keyName, n.OTEL)
+			}
+		}
+	}
+}

@@ -708,8 +708,9 @@ var (
 		Unit:    "{connection}",
 		Type:    InstrumentCounter,
 	})
+	// the attributes.select sections are normalized: their underscores become dots
 	StatTCPFlowControlEvents = metric(Name{
-		Section: "obi.stat.tcp.flow_control.events",
+		Section: "obi.stat.tcp.flow.control.events",
 		OTEL:    "obi.stat.tcp.flow_control.events",
 		Unit:    "{event}",
 		Type:    InstrumentCounter,
@@ -727,7 +728,7 @@ var (
 		Type:    InstrumentCounter,
 	})
 	StatTCPOutOfOrderPackets = metric(Name{
-		Section: "obi.stat.tcp.out_of_order.packets",
+		Section: "obi.stat.tcp.out.of.order.packets",
 		OTEL:    "obi.stat.tcp.out_of_order.packets",
 		Unit:    "{packet}",
 		Type:    InstrumentCounter,
