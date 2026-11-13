@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"syscall"
 	"testing"
 
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
@@ -141,5 +142,38 @@ func TestPrintStat_IPv6(t *testing.T) {
 
 	if !strings.Contains(out, "src.address=2001:db8::1") {
 		t.Errorf("expected IPv6 address in output, got: %s", out)
+	}
+}
+
+func TestPrintStat_SocketTraffic(t *testing.T) {
+	s := &ebpf.Stat{
+		Type: ebpf.StatTypeSocketTraffic,
+		SocketTraffic: &ebpf.SocketTraffic{
+			Transport: syscall.IPPROTO_UDP,
+			Direction: uint8(ebpf.CodeDirectionTransmit),
+			Pid:       321,
+			Bytes:     40,
+			Packets:   1,
+		},
+		CommonAttrs: pipe.CommonAttrs{
+			SrcAddr: ipv4Addr("10.0.0.1"),
+			DstAddr: ipv4Addr("10.96.0.10"),
+			DstPort: 53,
+		},
+	}
+
+	out := capturePrintStat(s)
+
+	for _, want := range []string{
+		"dst.address=10.96.0.10",
+		"network.transport=udp",
+		"network.io.direction=transmit",
+		"bytes=40",
+		"packets=1",
+		"pid=321",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q:\n%s", want, out)
+		}
 	}
 }

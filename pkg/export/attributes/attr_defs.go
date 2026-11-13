@@ -184,6 +184,36 @@ func getDefinitions(
 		},
 		extraGroupAttributes[GroupStatsKube],
 	)
+
+	// the process and container of each side of a socket, for the metrics of the stats tracer
+	// that know the process of their socket
+	statsProcessAttributes := NewAttrReportGroup(
+		false,
+		nil,
+		map[attr.Name]Default{
+			attr.SrcProcessExecutableName: false,
+			attr.DstProcessExecutableName: false,
+			attr.SrcContainerName:         false,
+			attr.DstContainerName:         false,
+			attr.SrcContainerImageName:    false,
+			attr.DstContainerImageName:    false,
+			attr.SrcContainerImageTag:     false,
+			attr.DstContainerImageTag:     false,
+			attr.SrcContainerID:           false,
+			attr.DstContainerID:           false,
+		},
+		nil,
+	)
+	// the server port of the stats that know the server side of their connection: not the DNS
+	// lookups nor the TCP resets
+	statsServerPortAttributes := NewAttrReportGroup(
+		false,
+		nil,
+		map[attr.Name]Default{
+			attr.ServerPort: false,
+		},
+		nil,
+	)
 	// network CIDR attributes are only enabled if the CIDRs configuration
 	// is defined
 	networkCIDR := NewAttrReportGroup(
@@ -335,11 +365,30 @@ func getDefinitions(
 		extraGroupAttributes[GroupHTTPRoutes],
 	)
 
+	httpClientRoutes := NewAttrReportGroup(
+		!groups.Has(GroupHTTPRoutes),
+		nil,
+		map[attr.Name]Default{
+			attr.HTTPUrlTemplate: true,
+		},
+		nil,
+	)
+
+	// Semconv makes url.template opt-in on the stable client duration metric,
+	// and conditionally required only on the development body-size metrics.
+	httpClientDurationRoutes := NewAttrReportGroup(
+		!groups.Has(GroupHTTPRoutes),
+		nil,
+		map[attr.Name]Default{
+			attr.HTTPUrlTemplate: false,
+		},
+		nil,
+	)
+
 	serverInfo := NewAttrReportGroup(
 		false,
 		nil,
 		map[attr.Name]Default{
-			attr.ClientAddr: false,
 			attr.ServerAddr: true,
 			attr.ServerPort: true,
 		},
@@ -368,13 +417,13 @@ func getDefinitions(
 
 	httpCommon := NewAttrReportGroup(
 		false,
-		[]*AttrReportGroup{&httpRoutes},
+		nil,
 		map[attr.Name]Default{
 			attr.HTTPRequestMethod:      true,
 			attr.HTTPURLScheme:          true,
 			attr.HTTPResponseStatusCode: true,
-			attr.HTTPUrlPath:            false,
 			attr.ErrorType:              true,
+			attr.NetworkProtocolVersion: false,
 		},
 		extraGroupAttributes[GroupHTTPCommon],
 	)
@@ -405,22 +454,41 @@ func getDefinitions(
 			SubGroups: []*AttrReportGroup{&networkInterZone, &networkInterZoneCIDR, &networkGeoIP, &networkInterZoneKube},
 		},
 		HTTPServerDuration.Section: {
-			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &serverInfo},
+			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &httpRoutes, &serverInfo},
+			Attributes: map[attr.Name]Default{
+				attr.HTTPUrlPath: false,
+				attr.ClientAddr:  false,
+			},
 		},
 		HTTPServerRequestSize.Section: {
-			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &serverInfo},
+			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &httpRoutes, &serverInfo},
+			Attributes: map[attr.Name]Default{
+				attr.NetworkProtocolVersion: true,
+			},
 		},
 		HTTPServerResponseSize.Section: {
-			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &serverInfo},
+			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &httpRoutes, &serverInfo},
+			Attributes: map[attr.Name]Default{
+				attr.NetworkProtocolVersion: true,
+			},
 		},
 		HTTPClientDuration.Section: {
-			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &httpClientInfo},
+			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &httpClientDurationRoutes, &httpClientInfo},
+			Attributes: map[attr.Name]Default{
+				attr.HTTPUrlPath: false,
+			},
 		},
 		HTTPClientRequestSize.Section: {
-			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &httpClientInfo},
+			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &httpClientRoutes, &httpClientInfo},
+			Attributes: map[attr.Name]Default{
+				attr.NetworkProtocolVersion: true,
+			},
 		},
 		HTTPClientResponseSize.Section: {
-			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &httpClientInfo},
+			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &httpClientRoutes, &httpClientInfo},
+			Attributes: map[attr.Name]Default{
+				attr.NetworkProtocolVersion: true,
+			},
 		},
 		RPCClientDuration.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes, &grpcClientInfo},
@@ -456,6 +524,7 @@ func getDefinitions(
 		DBServerDuration.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes, &serverInfo},
 			Attributes: map[attr.Name]Default{
+				attr.ClientAddr:           false,
 				attr.DBOperation:          true,
 				attr.DBSystemName:         true,
 				attr.ErrorType:            true,
@@ -489,6 +558,7 @@ func getDefinitions(
 				attr.GenAIToolCallArguments: false,
 				attr.GenAIToolCallResult:    false,
 				attr.GenAIResponseError:     false,
+				attr.OpenAIRequestQuestions: false,
 				attr.DBResponseError:        false,
 				// Conditionally Required or Recommended by OTel semconv, so emitted
 				// by default. Opt out via attributes.select.traces.exclude.
@@ -743,6 +813,18 @@ func getDefinitions(
 				attr.CPUMode: true,
 			},
 		},
+		DotnetGCHeapSize.Section: {
+			SubGroups: []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.DotnetGCHeapGeneration: true,
+			},
+		},
+		DotnetGCHeapFragmentation.Section: {
+			SubGroups: []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.DotnetGCHeapGeneration: true,
+			},
+		},
 		DotnetGCCollections.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes},
 			Attributes: map[attr.Name]Default{
@@ -800,6 +882,10 @@ func getDefinitions(
 		DotnetMonitorLockContentions.Section: {
 			SubGroups:  []*AttrReportGroup{&appAttributes},
 			Attributes: map[attr.Name]Default{},
+		},
+		DotnetExceptions.Section: {
+			SubGroups:  []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{attr.ErrorType: true},
 		},
 		CPythonGCCollections.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes},
@@ -896,32 +982,157 @@ func getDefinitions(
 			Attributes: map[attr.Name]Default{},
 		},
 		StatTCPRtt.Section: {
-			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes, &statsServerPortAttributes},
 			Attributes: map[attr.Name]Default{
 				attr.NetworkTCPHandshakeRole: false,
+				attr.NetworkPeerSameHost:     false,
+				attr.SrcPreNATAddress:        false,
+				attr.DstPreNATAddress:        false,
+				attr.ServerPreNATPort:        false,
 			},
 		},
 		StatTCPFailedConnections.Section: {
-			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes, &statsServerPortAttributes},
 			Attributes: map[attr.Name]Default{
 				attr.TCPFailedConnectionReason: false,
 				attr.NetworkTCPHandshakeRole:   false,
+				attr.NetworkPeerSameHost:       false,
+				attr.SrcPreNATAddress:          false,
+				attr.DstPreNATAddress:          false,
+				attr.ServerPreNATPort:          false,
 			},
 		},
 		StatTCPRetransmits.Section: {
-			SubGroups:  []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},
-			Attributes: map[attr.Name]Default{},
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes, &statsServerPortAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.NetworkTCPRetransmitType: true,
+				attr.NetworkTCPHandshakeRole:  false,
+				attr.NetworkPeerSameHost:      false,
+				attr.SrcPreNATAddress:         false,
+				attr.DstPreNATAddress:         false,
+				attr.ServerPreNATPort:         false,
+			},
 		},
 		StatTCPIo.Section: {
-			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes, &statsServerPortAttributes},
 			Attributes: map[attr.Name]Default{
-				attr.NetworkIoDirection: true,
+				attr.NetworkIoDirection:      true,
+				attr.NetworkTCPHandshakeRole: false,
+				attr.NetworkPeerSameHost:     false,
+				attr.SrcPreNATAddress:        false,
+				attr.DstPreNATAddress:        false,
+				attr.ServerPreNATPort:        false,
 			},
 		},
 		StatTCPSuccessfulConnections.Section: {
-			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes, &statsServerPortAttributes},
 			Attributes: map[attr.Name]Default{
 				attr.NetworkTCPHandshakeRole: false,
+				attr.NetworkPeerSameHost:     false,
+				attr.SrcPreNATAddress:        false,
+				attr.DstPreNATAddress:        false,
+				attr.ServerPreNATPort:        false,
+			},
+		},
+		StatTCPClosedConnections.Section: {
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes, &statsServerPortAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.NetworkTCPHandshakeRole: false,
+				attr.NetworkPeerSameHost:     false,
+				attr.SrcPreNATAddress:        false,
+				attr.DstPreNATAddress:        false,
+				attr.ServerPreNATPort:        false,
+			},
+		},
+		StatTCPFlowControlEvents.Section: {
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes, &statsServerPortAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.NetworkTCPFlowControlEvent: true,
+				attr.NetworkTCPHandshakeRole:    false,
+				attr.NetworkPeerSameHost:        false,
+				attr.SrcPreNATAddress:           false,
+				attr.DstPreNATAddress:           false,
+				attr.ServerPreNATPort:           false,
+			},
+		},
+		StatTCPECNCEPackets.Section: {
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes, &statsServerPortAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.NetworkTCPHandshakeRole: false,
+				attr.NetworkPeerSameHost:     false,
+				attr.SrcPreNATAddress:        false,
+				attr.DstPreNATAddress:        false,
+				attr.ServerPreNATPort:        false,
+			},
+		},
+		StatTCPReorderingEvents.Section: {
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes, &statsServerPortAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.NetworkTCPHandshakeRole: false,
+				attr.NetworkPeerSameHost:     false,
+				attr.SrcPreNATAddress:        false,
+				attr.DstPreNATAddress:        false,
+				attr.ServerPreNATPort:        false,
+			},
+		},
+		StatTCPOutOfOrderPackets.Section: {
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes, &statsServerPortAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.NetworkTCPHandshakeRole: false,
+				attr.NetworkPeerSameHost:     false,
+				attr.SrcPreNATAddress:        false,
+				attr.DstPreNATAddress:        false,
+				attr.ServerPreNATPort:        false,
+			},
+		},
+		StatTCPCongestionEvents.Section: {
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes, &statsServerPortAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.NetworkTCPCongestionEvent: true,
+				attr.NetworkTCPHandshakeRole:   false,
+				attr.NetworkPeerSameHost:       false,
+				attr.SrcPreNATAddress:          false,
+				attr.DstPreNATAddress:          false,
+				attr.ServerPreNATPort:          false,
+			},
+		},
+		StatSocketBytes.Section: {
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes, &statsServerPortAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.NetworkTransport:      true,
+				attr.NetworkIoDirection:    true,
+				attr.NetworkConnectionRole: false,
+				attr.NetworkPeerSameHost:   false,
+				attr.SrcPreNATAddress:      false,
+				attr.DstPreNATAddress:      false,
+				attr.ServerPreNATPort:      false,
+			},
+		},
+		StatSocketPackets.Section: {
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes, &statsServerPortAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.NetworkTransport:      true,
+				attr.NetworkIoDirection:    true,
+				attr.NetworkConnectionRole: false,
+				attr.NetworkPeerSameHost:   false,
+				attr.SrcPreNATAddress:      false,
+				attr.DstPreNATAddress:      false,
+				attr.ServerPreNATPort:      false,
+			},
+		},
+		StatDNSLookupDuration.Section: {
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes, &statsProcessAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.ErrorType:       true,
+				attr.DNSQuestionName: false,
+				attr.DNSQuestionType: false,
+			},
+		},
+		StatTCPResets.Section: {
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.NetworkIoDirection:   true,
+				attr.NetworkTCPResetCause: false,
 			},
 		},
 
@@ -959,6 +1170,10 @@ func copyDisabled(src AttrReportGroup) AttrReportGroup {
 	return dst
 }
 
+// filterOnlyAttributes keeps span attributes available to filters
+// independently of metric reporting.
+var filterOnlyAttributes = []attr.Name{attr.HTTPUrlPath}
+
 // AllAttributeNames returns a set with all the names in the attributes database
 // as returned by the getDefinitions function
 func AllAttributeNames(
@@ -975,6 +1190,9 @@ func AllAttributeNames(
 		for _, section := range extraDefinitionsProvider(-1, extraGroupAttributes) {
 			maps.Copy(names, section.All())
 		}
+	}
+	for _, name := range filterOnlyAttributes {
+		names[name] = struct{}{}
 	}
 	return names
 }

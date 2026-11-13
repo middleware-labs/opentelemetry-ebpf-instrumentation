@@ -1,0 +1,94 @@
+image:
+  registry: ghcr.io
+  repository: middleware-labs/ruby-app
+  tag: ntest
+  pullPolicy: Always
+
+preset: application
+
+config:
+  data:
+    extensions:
+      obi:
+        version: "2.0"
+        capture:
+          instrumentation:
+            dns:
+              enabled:
+                metrics: true
+                traces: false
+          network:
+            capture:
+              enabled: true
+              enrichment:
+                reverse_dns:
+                  mode: ebpf
+                  cache:
+                    size: 256
+                    ttl: 1h
+            stats:
+              enabled: true
+              features:
+                - tcp_rtt
+                - tcp_failed_connections
+                - tcp_successful_connections
+                - tcp_retransmits
+                - tcp_io
+        enrich:
+          attributes:
+            select:
+              obi.network.flow.bytes:
+                include: [direction, transport, src.address, dst.address, server.port,
+                          src.name, dst.name, src.cidr, dst.cidr, obi.ip,
+                          k8s.cluster.name, k8s.src.namespace, k8s.src.owner.name, k8s.src.owner.type,
+                          k8s.dst.namespace, k8s.dst.owner.name, k8s.dst.owner.type]
+              obi.network.flow.packets:
+                include: [direction, transport, src.address, dst.address, server.port,
+                          src.name, dst.name, src.cidr, dst.cidr, obi.ip,
+                          k8s.src.owner.name, k8s.dst.owner.name]
+              obi.network.inter.zone.bytes:
+                include: [k8s.cluster.name, src.zone, dst.zone]
+              obi.stat.tcp.rtt:
+                include: ["*"]
+                exclude: [src.port, dst.port]
+              obi.stat.tcp.retransmits:
+                include: ["*"]
+                exclude: [src.port, dst.port]
+              obi.stat.tcp.failed.connections:
+                include: ["*"]
+                exclude: [src.port]
+              obi.stat.tcp.successful.connections:
+                include: ["*"]
+                exclude: [src.port, dst.port]
+              obi.stat.tcp.io:
+                include: ["*"]
+                exclude: [src.port, dst.port]
+              dns.lookup.duration:
+                include: [dns.question.name, error.type, service.name]
+          enrichers:
+            kubernetes:
+              mode: enabled
+              cluster_name: npm-cluster
+    meter_provider:
+      readers:
+        - periodic:
+            interval: 30000
+            exporter:
+              otlp_grpc:
+                endpoint: http://mw-service.mw-agent-ns.svc.cluster.local:9319
+                tls:
+                  insecure: true
+    tracer_provider:
+      processors:
+        - batch:
+            max_export_batch_size: 4096
+            max_queue_size: 16384
+            schedule_delay: 15000
+            exporter:
+              otlp_grpc:
+                endpoint: http://mw-service.mw-agent-ns.svc.cluster.local:9319
+                tls:
+                  insecure: true
+
+k8sCache:
+  replicas: 1

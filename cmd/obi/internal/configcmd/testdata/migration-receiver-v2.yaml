@@ -1,4 +1,18 @@
 version: "2.0"
+attributes:
+    select:
+        http.server.request.duration:
+            include: []
+            exclude:
+                - http.route
+        traces:
+            include:
+                - service.peer.name
+            exclude: []
+exceptions:
+    enabled: false
+    go:
+        formatted_errors: false
 policy:
     default_action: exclude
     match_order: first_match_wins
@@ -54,6 +68,7 @@ instrumentation:
             traces: true
             metrics: true
             body_size_metrics: true
+            request_phase_spans: true
         filters:
             traces:
                 http.request.method:
@@ -94,6 +109,7 @@ instrumentation:
             sqlpp:
                 endpoint_patterns:
                     - /query/service
+                prepared_statements_cache_size: 1024
             enrichment:
                 policy:
                     default_action:
@@ -126,6 +142,7 @@ instrumentation:
                 http.request.method:
                     not_match: OPTIONS
         heuristic_detect: false
+        sanitize_query_text: false
         mysql:
             buffer_size: 0
             prepared_statements_cache_size: 1024
@@ -236,6 +253,7 @@ runtimes:
 network:
     capture:
         enabled: false
+        features: []
         source: socket_filter
         buffer_size: 0
         endpoint_identity:
@@ -310,6 +328,14 @@ network:
                 cache:
                     size: 256
                     ttl: 1h0m0s
+        socket_traffic:
+            protocols:
+                - tcp
+                - udp
+            read_interval: 10s
+            max_entries: 65536
+            connection_rollup: false
+            tcp_metrics: false
         diagnostics:
             print_stats: false
 metrics:
@@ -328,6 +354,8 @@ engine:
         wakeup_len: 500
         batch_length: 100
         batch_timeout: 1s
+        stats:
+            wakeup_bytes: 4096
     propagation:
         context_propagation: disabled
         override_bpfloop_enabled: false
@@ -343,6 +371,8 @@ engine:
         global_scale_factor: 0
     bpf_filesystem:
         path: /sys/fs/bpf/
+    cgroup_filesystem:
+        path: ""
 safety:
     enforce_system_capabilities: false
 channels:
@@ -355,3 +385,4 @@ telemetry:
     metrics:
         reporters_cache_len: 256
         ttl: 5m0s
+        connection_info_ttl: 15m0s

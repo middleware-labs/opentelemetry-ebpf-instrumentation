@@ -58,6 +58,20 @@ type PrometheusReporter struct {
 	bpfRingbufFailures    *prometheus.CounterVec
 
 	queueCapacityRatio *prometheus.GaugeVec
+
+	// used for calculating deltas from an absolute value
+	totalStatsDNSDroppedQuestions     uint64
+	totalStatsDNSServerKeyMerges      uint64
+	statsDNSDroppedQuestions          prometheus.Counter
+	statsDNSServerKeyMerges           prometheus.Counter
+	statsDNSReaderLag                 prometheus.Gauge
+	totalStatsSocketTrafficDrops      uint64
+	totalStatsSocketTrafficCloseDrops uint64
+	totalStatsSocketTrafficUnderflows uint64
+	statsSocketTrafficDrops           prometheus.Counter
+	statsSocketTrafficCloseDrops      prometheus.Counter
+	statsSocketTrafficUnderflows      prometheus.Counter
+	statsSocketTrafficRows            prometheus.Gauge
 }
 
 func NewPrometheusReporter(cfg *InternalMetricsConfig, manager *connector.PrometheusManager, registry *prometheus.Registry) *PrometheusReporter {
@@ -164,6 +178,34 @@ func NewPrometheusReporter(cfg *InternalMetricsConfig, manager *connector.Promet
 			Name: internalNames.QueueCapacityRatio.Prom,
 			Help: "Ratio [0-1] between the unread messages of an internal Go channel and its total capacity",
 		}, []string{attr.Subscriber.Prom()}),
+		statsDNSDroppedQuestions: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: internalNames.StatsDNSDroppedQuestions.Prom,
+			Help: "DNS questions of the stats DNS lookups dropped because too many questions were waiting for an answer",
+		}),
+		statsDNSServerKeyMerges: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: internalNames.StatsDNSServerKeyMerges.Prom,
+			Help: "DNS question copies of the stats DNS lookups matched only by their server address, DNS ID and question",
+		}),
+		statsDNSReaderLag: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: internalNames.StatsDNSReaderLag.Prom,
+			Help: "How far behind the kernel, in seconds, the DNS packets of the stats DNS lookups are read",
+		}),
+		statsSocketTrafficDrops: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: internalNames.StatsSocketTrafficDrops.Prom,
+			Help: "Socket traffic updates not counted because the socket traffic kernel map was full",
+		}),
+		statsSocketTrafficCloseDrops: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: internalNames.StatsSocketTrafficCloseDrops.Prom,
+			Help: "Socket traffic close events lost because their ring buffer was full",
+		}),
+		statsSocketTrafficUnderflows: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: internalNames.StatsSocketTrafficUnderflows.Prom,
+			Help: "Socket traffic totals that went down, because a socket was replaced by another one with the same addresses",
+		}),
+		statsSocketTrafficRows: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: internalNames.StatsSocketTrafficRows.Prom,
+			Help: "Rows in the socket traffic kernel map",
+		}),
 	}
 	if !cfg.AvoidedServices.Disabled {
 		pr.avoidedServicesLimiter = avoidedsvc.NewLimiter(cfg.AvoidedServices.Limit)
@@ -197,6 +239,13 @@ func NewPrometheusReporter(cfg *InternalMetricsConfig, manager *connector.Promet
 		pr.bpfRingbufWrites,
 		pr.bpfRingbufFailures,
 		pr.queueCapacityRatio,
+		pr.statsDNSDroppedQuestions,
+		pr.statsDNSServerKeyMerges,
+		pr.statsDNSReaderLag,
+		pr.statsSocketTrafficDrops,
+		pr.statsSocketTrafficCloseDrops,
+		pr.statsSocketTrafficUnderflows,
+		pr.statsSocketTrafficRows,
 	}
 	if pr.avoidedServices != nil {
 		metrics = append(metrics, pr.avoidedServices)
@@ -300,6 +349,30 @@ func (p *PrometheusReporter) BPFPacketStats(count, ignored uint64) {
 func (p *PrometheusReporter) BPFRingbufWriteCounts(ringbuf string, writes, failures uint64) {
 	p.bpfRingbufWrites.WithLabelValues(ringbuf).Add(float64(writes))
 	p.bpfRingbufFailures.WithLabelValues(ringbuf).Add(float64(failures))
+}
+
+func (p *PrometheusReporter) StatsDNSCounters(droppedQuestions, serverKeyMerges uint64) {
+	p.statsDNSDroppedQuestions.Add(float64(droppedQuestions - p.totalStatsDNSDroppedQuestions))
+	p.statsDNSServerKeyMerges.Add(float64(serverKeyMerges - p.totalStatsDNSServerKeyMerges))
+	p.totalStatsDNSDroppedQuestions = droppedQuestions
+	p.totalStatsDNSServerKeyMerges = serverKeyMerges
+}
+
+func (p *PrometheusReporter) StatsDNSReaderLag(seconds float64) {
+	p.statsDNSReaderLag.Set(seconds)
+}
+
+func (p *PrometheusReporter) StatsSocketTrafficCounters(insertDrops, closeDrops, underflows uint64) {
+	p.statsSocketTrafficDrops.Add(float64(insertDrops - p.totalStatsSocketTrafficDrops))
+	p.statsSocketTrafficCloseDrops.Add(float64(closeDrops - p.totalStatsSocketTrafficCloseDrops))
+	p.statsSocketTrafficUnderflows.Add(float64(underflows - p.totalStatsSocketTrafficUnderflows))
+	p.totalStatsSocketTrafficDrops = insertDrops
+	p.totalStatsSocketTrafficCloseDrops = closeDrops
+	p.totalStatsSocketTrafficUnderflows = underflows
+}
+
+func (p *PrometheusReporter) StatsSocketTrafficRows(rows int) {
+	p.statsSocketTrafficRows.Set(float64(rows))
 }
 
 func (p *PrometheusReporter) QueueBufferUtilization(subscriber string, ratio float64) {

@@ -30,6 +30,9 @@ attributes:
   # `pkg/internal/statsolly/ebpf/stat.go`. Identifies which side of the
   # TCP handshake OBI observed the connection on.
   - key: network.tcp.handshake.role
+    annotations:
+      obi:
+        upstream_deviation: upstream defines no TCP handshake attributes
     type:
       members:
         - id: client
@@ -45,6 +48,237 @@ attributes:
     brief: >
       Role of the local endpoint in the TCP three-way handshake
       (`client` initiated the SYN, `server` was awaiting it).
+  # Mirrors `TCPResetCauseType` in `pkg/internal/statsolly/ebpf/stat.go`.
+  - key: network.tcp.reset.cause
+    annotations:
+      obi:
+        upstream_deviation: upstream defines no TCP reset attributes
+    type:
+      members:
+        - id: application
+          value: application
+          stability: development
+        - id: timeout
+          value: timeout
+          stability: development
+    stability: development
+    brief: >
+      Inferred cause of a TCP reset sent by the local endpoint, from the
+      code path that sent it: `application` when the socket was closed
+      before the reset (close() with unread data, SO_LINGER{0}), `timeout`
+      when the reset was sent with the connection still open, by a
+      keepalive, user-timeout or orphan timer, or by a forced socket
+      destroy such as `ss -K`.
+      Not set when the cause cannot be inferred: received resets, and sent
+      resets that answer an incoming segment.
+
+  # Mirrors `NetworkTCPHandshakeRoleType` in
+  # `pkg/internal/statsolly/ebpf/stat.go`, for the socket traffic metrics.
+  - key: network.connection.role
+    annotations:
+      obi:
+        upstream_deviation: upstream defines no client or server role of a connection
+    type:
+      members:
+        - id: client
+          value: client
+          stability: development
+        - id: server
+          value: server
+          stability: development
+        - id: unknown
+          value: unknown
+          stability: development
+    stability: development
+    brief: >
+      Side of the connection of the local socket. TCP takes it from the
+      handshake (`unknown` for connections established before OBI started),
+      UDP from the bound local ports: a socket bound to its local port is the
+      `server`.
+  # Mirrors Datadog's network.client.pre_nat.ip and network.server.pre_nat.ip.
+  - key: src.pre_nat.address
+    type: string
+    stability: development
+    brief: >
+      Source address before NAT, from conntrack: the address of the client socket, or the one
+      the client connected to on the server side, unless that client is on the same host. Set
+      only when the connection is translated; `src.address` is then the address after NAT.
+    examples: ["172.29.0.20"]
+  - key: dst.pre_nat.address
+    type: string
+    stability: development
+    brief: >
+      Destination address before NAT, from conntrack: for example the Kubernetes service
+      address that a client connected to. Set only when the connection is translated;
+      `dst.address` is then the address after NAT.
+    examples: ["10.96.0.10"]
+  - key: server.pre_nat.port
+    annotations:
+      obi:
+        upstream_deviation: upstream defines no address translation attributes
+    type: int
+    stability: development
+    brief: >
+      Port the client connected to before NAT, on the server side of a translated connection:
+      a published port or a NodePort, while `server.port` is the port of the socket. Never set
+      on the client side, whose own port before NAT is ephemeral, nor when `src.pre_nat.address`
+      is not set.
+    examples: [8044]
+  # Mirrors Datadog's IntraHost.
+  - key: network.peer.same_host
+    annotations:
+      obi:
+        upstream_deviation: upstream defines no attribute telling whether the peer is on the same host
+    type: boolean
+    stability: development
+    brief: >
+      Whether the remote socket is on this host: its address and port are the
+      local side of another socket traffic row (the network namespace is kept
+      for loopback addresses), or both addresses are the same or loopback.
+      Always `false` for the TCP stats read from the events.
+
+  # Process and container of each side of the socket traffic metrics: src is
+  # the local socket, dst the remote one when it is on the same host.
+  - key: src.process.executable.name
+    type: string
+    stability: development
+    brief: >
+      Base name of the executable of the process of the local socket. It is truncated to 16 bytes
+      for a process that ended before OBI looked it up.
+    examples: ["python3.12", "nginx"]
+  - key: src.container.name
+    type: string
+    stability: development
+    brief: >
+      Name of the container of the process of the local socket: the container name in its Kubernetes pod, or the Docker container name.
+    examples: ["orders"]
+  - key: src.container.image.name
+    type: string
+    stability: development
+    brief: >
+      Image name of the container of the process of the local socket (Docker only).
+    examples: ["myrepo/orders"]
+  - key: src.container.image.tag
+    type: string
+    stability: development
+    brief: >
+      Image tag of the container of the process of the local socket (Docker only).
+    examples: ["1.4"]
+  - key: src.container.id
+    type: string
+    stability: development
+    brief: >
+      Container ID of the process of the local socket, from its cgroup. High cardinality: for debugging.
+    examples: ["a3bf90e006b2e6b4f4bb1e8f8b8d1f1c4f2a9d3e2c1b0a9f8e7d6c5b4a392817"]
+  - key: dst.process.executable.name
+    type: string
+    stability: development
+    brief: >
+      Base name of the executable of the process of the remote (on the same host) socket. It is truncated to 16 bytes
+      for a process that ended before OBI looked it up.
+    examples: ["python3.12", "nginx"]
+  - key: dst.container.name
+    type: string
+    stability: development
+    brief: >
+      Name of the container of the process of the remote (on the same host) socket: the container name in its Kubernetes pod, or the Docker container name.
+    examples: ["orders"]
+  - key: dst.container.image.name
+    type: string
+    stability: development
+    brief: >
+      Image name of the container of the process of the remote (on the same host) socket (Docker only).
+    examples: ["myrepo/orders"]
+  - key: dst.container.image.tag
+    type: string
+    stability: development
+    brief: >
+      Image tag of the container of the process of the remote (on the same host) socket (Docker only).
+    examples: ["1.4"]
+  - key: dst.container.id
+    type: string
+    stability: development
+    brief: >
+      Container ID of the process of the remote (on the same host) socket, from its cgroup. High cardinality: for debugging.
+    examples: ["a3bf90e006b2e6b4f4bb1e8f8b8d1f1c4f2a9d3e2c1b0a9f8e7d6c5b4a392817"]
+
+  # Mirrors `NetworkTCPRetransmitType` in
+  # `pkg/internal/statsolly/ebpf/stat.go`. Derived from the socket's
+  # congestion state (`icsk_ca_state`) when the retransmission happens.
+  - key: network.tcp.retransmit.type
+    annotations:
+      obi:
+        upstream_deviation: upstream defines no TCP retransmit attributes
+    type:
+      members:
+        - id: timeout
+          value: timeout
+          stability: development
+        - id: fast
+          value: fast
+          stability: development
+        - id: other
+          value: other
+          stability: development
+    stability: development
+    brief: >
+      Cause of a TCP retransmission: `timeout` when the retransmission
+      timer expired, `fast` during fast recovery (duplicate ACKs or SACK),
+      `other` for anything else (e.g. SYN retransmits, and the tail loss
+      probes: the socket traffic rows add them when the connection closes).
+  # Mirrors `NetworkTCPFlowControlEventType` in
+  # `pkg/internal/statsolly/ebpf/stat.go`.
+  - key: network.tcp.flow_control.event
+    annotations:
+      obi:
+        upstream_deviation: upstream defines no TCP flow control attributes
+    type:
+      members:
+        - id: zero_window
+          value: zero_window
+          stability: development
+        - id: unknown
+          value: unknown
+          stability: development
+    stability: development
+    brief: >
+      Kind of TCP flow-control event. `zero_window` is a zero-window
+      probe sent while the peer advertises a zero receive window.
+  # Mirrors `NetworkTCPCongestionEventType` in
+  # `pkg/internal/statsolly/ebpf/stat.go`.
+  - key: network.tcp.congestion.event
+    annotations:
+      obi:
+        upstream_deviation: upstream defines no TCP congestion attributes
+    type:
+      members:
+        - id: rto
+          value: rto
+          stability: development
+        - id: recovery
+          value: recovery
+          stability: development
+        - id: unknown
+          value: unknown
+          stability: development
+    stability: development
+    brief: >
+      Kind of TCP congestion event. `rto` is an entry into loss after the
+      retransmission timer expired; `recovery` is an entry into fast
+      recovery.
+  # Set from the question of the stats DNS lookups, in
+  # `pkg/internal/statsolly/ebpf/stat_getters.go`. There is no semantic
+  # convention for the question type yet.
+  - key: dns.question.type
+    annotations:
+      obi:
+        upstream_deviation: upstream defines the DNS question name but no question type
+    type: string
+    stability: development
+    brief: >
+      DNS record type of the question, as its name (`A`, `AAAA`, `SRV`...),
+      or as its number for the types without a name in OBI.
+    examples: ["A", "AAAA", "SRV"]
 
 attribute_groups:
   # `obi.ip` / `src.*` / `dst.*` are reused from `registry.obi.network` so we
@@ -55,11 +289,19 @@ attribute_groups:
     brief: >
       Attributes carried on OBI's per-connection TCP statistics. Emitted
       when the `stats_tcp_rtt`, `stats_tcp_failed_connections` or
-      `stats_tcp_successful_connections` features are enabled (all rolled
-      into the umbrella `stats` feature). Like
+      `stats_tcp_successful_connections` features (all rolled into the
+      umbrella `stats` feature), or the `stats_tcp_closed_connections`,
+      `stats_tcp_flow_control`, `stats_tcp_congestion` or `stats_dns_lookups`
+      features are enabled. The closed connection, flow control and
+      congestion metrics are read from the socket traffic rows only:
+      they need `stats.socket_traffic.tcp_metrics`. Like
       network-flow metrics, the per-data-point attribute set is configurable
       via `attributes.select`.
     stability: development
     attributes:
       - ref: reason
       - ref: network.tcp.handshake.role
+      - ref: network.tcp.retransmit.type
+      - ref: network.tcp.flow_control.event
+      - ref: dns.question.type
+      - ref: network.tcp.reset.cause

@@ -89,6 +89,12 @@ func InfoForPID(pid app.PID) (Info, error) {
 	return Info{}, ErrContainerNotFound
 }
 
+// IDFromCgroupPath returns the container ID of a cgroup v2 path relative to the cgroup root,
+// e.g. "/system.slice/docker-<id>.scope", with the formats of /proc/<pid>/cgroup.
+func IDFromCgroupPath(path string) (string, bool) {
+	return findCgroup("0::" + path)
+}
+
 // look for a cgroup ID on all the possible formats
 func findCgroup(cgroupEntry string) (string, bool) {
 	for _, re := range cgroupFormats {

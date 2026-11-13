@@ -9,12 +9,24 @@ import (
 	"math/bits"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/invopop/jsonschema"
 	"gopkg.in/yaml.v3"
 
 	"go.opentelemetry.io/obi/pkg/internal/helpers/maps"
 )
+
+// DefaultConnectionInfoTTL is the retention period for observed connection-info edges.
+const DefaultConnectionInfoTTL = 15 * time.Minute
+
+// ConnectionInfoTTLOrDefault returns ttl when positive, otherwise the default retention period.
+func ConnectionInfoTTLOrDefault(ttl time.Duration) time.Duration {
+	if ttl <= 0 {
+		return DefaultConnectionInfoTTL
+	}
+	return ttl
+}
 
 // Features is a bitmask of enabled metric features.
 // Each Features value can contain data about a single feature or a combination of OR-ed features.
@@ -32,6 +44,18 @@ const (
 	FeatureStatsTCPSuccessfulConnections
 	FeatureStatsTCPRetransmits
 	FeatureStatsTCPIo
+	FeatureStatsTCPFlowControl
+	FeatureStatsTCPCongestion
+	FeatureStatsTCPClosedConnections
+	// FeatureStatsDNSLookups attaches a socket filter that runs for every packet of OBI's
+	// network namespace, to match the DNS questions and answers of all the processes.
+	// It is not part of FeatureStats: it must be enabled explicitly.
+	FeatureStatsDNSLookups
+	// FeatureStatsSocketBytes and FeatureStatsSocketPackets count the bytes and packets at every
+	// TCP send/receive call and, optionally, every UDP datagram.
+	// They are not part of FeatureStats: they must be enabled explicitly.
+	FeatureStatsSocketBytes
+	FeatureStatsSocketPackets
 	FeatureNetworkInterZone
 	FeatureApplicationRED
 	// FeatureApplicationSizes emits the HTTP request and response body size histograms.
@@ -56,14 +80,41 @@ const (
 	FeatureGraph
 	FeatureApplicationRuntime
 	FeatureEBPF
-	FeatureAll = Features(^uint(0)) // all bits to 1
+	FeatureConnectionInfo
+	FeatureStatsTCPResets
+	// FeatureAll preserves the legacy all-features behavior while keeping the Config v2-only
+	// features opt-in.
+	// The socket traffic row features need stats.socket_traffic.tcp_metrics, so they stay opt-in too.
+	FeatureAll = Features(^uint(0)) &^ (FeatureConnectionInfo | FeatureStatsTCPResets | FeatureStatsTCPRowOnly)
 )
 
 // FeatureStats enables all stat metrics, including TCP IO.
 // Note: FeatureStatsTCPIo fires on every tcp_sendmsg and tcp_cleanup_rbuf call — significantly
 // higher event volume than the other stat metrics (which fire on close, failure, or retransmit).
 // If overhead is a concern, enable the lower-frequency metrics individually and opt into stats_tcp_io explicitly.
+// FeatureStatsDNSLookups is left out: its socket filter adds a cost to every packet of the host, not only to TCP events.
 const FeatureStats = FeatureStatsTCPRtt | FeatureStatsTCPFailedConnections | FeatureStatsTCPRetransmits | FeatureStatsTCPIo | FeatureStatsTCPSuccessfulConnections
+
+// FeatureStatsTCPRowOnly are the TCP stat metrics that only the socket traffic rows hold: they
+// need stats.socket_traffic.tcp_metrics, and are not part of FeatureStats.
+const FeatureStatsTCPRowOnly = FeatureStatsTCPFlowControl | FeatureStatsTCPCongestion | FeatureStatsTCPClosedConnections
+
+// FeatureStatsSocketTraffic groups the features read from the socket traffic map.
+const FeatureStatsSocketTraffic = FeatureStatsSocketBytes | FeatureStatsSocketPackets
+
+// FeatureAnyStats are all the features of the stats pipeline, including the ones that are not in FeatureStats.
+const FeatureAnyStats = FeatureStats | FeatureStatsTCPRowOnly | FeatureStatsDNSLookups | FeatureStatsSocketTraffic | FeatureStatsTCPResets
+
+// v2OnlyFeatures are selectable only from Config v2. They stay out of FeatureMapper so the
+// frozen v1 feature names do not change, and out of FeatureStats so the "stats" aggregate
+// keeps its v1 meaning.
+var v2OnlyFeatures = []struct {
+	name    string
+	feature Features
+}{
+	{name: "application_service_graph_connection_info", feature: FeatureConnectionInfo},
+	{name: "stats_tcp_resets", feature: FeatureStatsTCPResets},
+}
 
 // FeatureMapper stays public so any extension package can add and remove feature
 // definitions before loading them.
@@ -74,6 +125,12 @@ var FeatureMapper = map[string]Features{
 	"stats_tcp_retransmits":            FeatureStatsTCPRetransmits,
 	"stats_tcp_io":                     FeatureStatsTCPIo,
 	"stats_tcp_successful_connections": FeatureStatsTCPSuccessfulConnections,
+	"stats_tcp_flow_control":           FeatureStatsTCPFlowControl,
+	"stats_tcp_congestion":             FeatureStatsTCPCongestion,
+	"stats_tcp_closed_connections":     FeatureStatsTCPClosedConnections,
+	"stats_dns_lookups":                FeatureStatsDNSLookups,
+	"stats_socket_bytes":               FeatureStatsSocketBytes,
+	"stats_socket_packets":             FeatureStatsSocketPackets,
 	"network":                          FeatureNetwork,
 	"network_inter_zone":               FeatureNetworkInterZone,
 	"network_flow_packets":             FeatureNetworkFlowPackets,
@@ -228,6 +285,11 @@ func (f Features) Names() []string {
 			remaining = Features(maps.Bits(remaining) &^ maps.Bits(feature))
 		}
 	}
+	for _, v2 := range v2OnlyFeatures {
+		if remaining.has(v2.feature) {
+			names = append(names, v2.name)
+		}
+	}
 	return names
 }
 
@@ -246,24 +308,51 @@ func (f Features) MarshalYAML() (any, error) {
 }
 
 func LoadFeatures(features []string) (Features, error) {
+	return loadFeatures(features, false)
+}
+
+// LoadV2Features loads Config v2 metric features, including v2-only opt-ins.
+func LoadV2Features(features []string) (Features, error) {
+	return loadFeatures(features, true)
+}
+
+func loadFeatures(features []string, allowV2 bool) (Features, error) {
 	if len(features) == 0 {
 		return FeatureEmpty, nil
 	}
 	// convert the public data type to the internal representation
 	feats := Features(0)
+	validNames := validFeatureNames()
+	if allowV2 {
+		for _, v2 := range v2OnlyFeatures {
+			validNames = append(validNames, v2.name)
+		}
+	}
 	for _, f := range features {
 		name := strings.TrimSpace(f)
 		if name == "" {
 			continue
 		}
 		feature, ok := FeatureMapper[name]
+		if !ok && allowV2 {
+			feature, ok = v2OnlyFeature(name)
+		}
 		if !ok {
 			return Features(0), fmt.Errorf("unknown metrics feature %q (valid features: %s)",
-				name, strings.Join(validFeatureNames(), ", "))
+				name, strings.Join(validNames, ", "))
 		}
 		feats |= feature
 	}
 	return feats, nil
+}
+
+func v2OnlyFeature(name string) (Features, bool) {
+	for _, v2 := range v2OnlyFeatures {
+		if v2.name == name {
+			return v2.feature, true
+		}
+	}
+	return 0, false
 }
 
 func (f Features) has(feature Features) bool {
@@ -312,7 +401,7 @@ func (f Features) Empty() bool {
 }
 
 func (f Features) AnyAppO11yMetric() bool {
-	return f.any(AppO11yFeatures | FeatureApplicationRuntime)
+	return f.any(AppO11yFeatures | FeatureApplicationRuntime | FeatureConnectionInfo)
 }
 
 func (f Features) SpanMetrics() bool {
@@ -348,6 +437,15 @@ func (f Features) ServiceGraph() bool {
 	return f.any(FeatureGraph)
 }
 
+func (f Features) ConnectionInfo() bool {
+	return f.any(FeatureConnectionInfo)
+}
+
+// ServiceTopology reports whether service-graph or connection-info metrics are enabled.
+func (f Features) ServiceTopology() bool {
+	return f.ServiceGraph() || f.ConnectionInfo()
+}
+
 func (f Features) AppRuntime() bool {
 	return f.any(FeatureApplicationRuntime)
 }
@@ -375,7 +473,7 @@ func (f Features) NetworkFlowPackets() bool {
 }
 
 func (f Features) StatMetrics() bool {
-	return f.any(FeatureStats)
+	return f.any(FeatureAnyStats)
 }
 
 func (f Features) StatsTCPRtt() bool {
@@ -390,12 +488,45 @@ func (f Features) StatsTCPSuccessfulConnections() bool {
 	return f.any(FeatureStatsTCPSuccessfulConnections)
 }
 
+func (f Features) StatsTCPClosedConnections() bool {
+	return f.any(FeatureStatsTCPClosedConnections)
+}
+
+func (f Features) StatsDNSLookups() bool {
+	return f.any(FeatureStatsDNSLookups)
+}
+
+func (f Features) StatsSocketBytes() bool {
+	return f.any(FeatureStatsSocketBytes)
+}
+
+func (f Features) StatsSocketPackets() bool {
+	return f.any(FeatureStatsSocketPackets)
+}
+
+// StatsSocketTraffic reports whether any metric of the socket traffic map is enabled.
+func (f Features) StatsSocketTraffic() bool {
+	return f.any(FeatureStatsSocketTraffic)
+}
+
 func (f Features) StatsTCPRetransmits() bool {
 	return f.any(FeatureStatsTCPRetransmits)
 }
 
 func (f Features) StatsTCPIo() bool {
 	return f.any(FeatureStatsTCPIo)
+}
+
+func (f Features) StatsTCPFlowControl() bool {
+	return f.any(FeatureStatsTCPFlowControl)
+}
+
+func (f Features) StatsTCPCongestion() bool {
+	return f.any(FeatureStatsTCPCongestion)
+}
+
+func (f Features) StatsTCPResets() bool {
+	return f.any(FeatureStatsTCPResets)
 }
 
 func (f Features) NetworkInterZone() bool {

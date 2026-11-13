@@ -45,6 +45,21 @@ func testStatMetricsTCPRttGo(t *testing.T) {
 	}
 }
 
+// Both sides shut the connection down before close(), so the sockets reach TCP_CLOSE
+// while the application still holds them. RTT must still carry the handshake role.
+func testStatMetricsTCPRttRoleAfterShutdownGo(t *testing.T) {
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		clientResults, err := pq.Query(`obi_stat_tcp_rtt_seconds_count{dst_port="8083",network_tcp_handshake_role="client"}`)
+		require.NoError(ct, err)
+		enoughPromResults(ct, clientResults)
+
+		serverResults, err := pq.Query(`obi_stat_tcp_rtt_seconds_count{src_port="8083",network_tcp_handshake_role="server"}`)
+		require.NoError(ct, err)
+		enoughPromResults(ct, serverResults)
+	}, testTimeout, 100*time.Millisecond)
+}
+
 func testStatMetricsTCPFailedConnectionsGo(t *testing.T) {
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
@@ -52,6 +67,12 @@ func testStatMetricsTCPFailedConnectionsGo(t *testing.T) {
 		require.NoError(ct, err)
 		enoughPromResults(ct, results)
 		assert.Positive(ct, totalPromCount(ct, results))
+
+		// The refused socket released its local port before the tracepoint fired,
+		// so the probe must report the port the SYN was sent from instead.
+		zeroPortResults, err := pq.Query(`obi_stat_tcp_failed_connections_total{dst_port="19999",network_tcp_handshake_role="client",src_port="0"}`)
+		require.NoError(ct, err)
+		assert.Empty(ct, zeroPortResults)
 	}, testTimeout, 100*time.Millisecond)
 }
 
@@ -68,6 +89,62 @@ func testStatMetricsTCPSuccessfulConnectionsGo(t *testing.T) {
 		enoughPromResults(ct, serverResults)
 		assert.Positive(ct, totalPromCount(ct, serverResults))
 	}, testTimeout, 100*time.Millisecond)
+}
+
+func testStatMetricsDNSLookupsGo(t *testing.T) {
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		answered, err := pq.Query(`obi_stat_dns_lookup_duration_seconds_count{dst_port="53",dns_question_name="obi.example.test",dns_question_type="A",error_type=""}`)
+		require.NoError(ct, err)
+		enoughPromResults(ct, answered)
+		assert.Positive(ct, totalPromCount(ct, answered))
+
+		nxdomain, err := pq.Query(`obi_stat_dns_lookup_duration_seconds_count{dst_port="53",dns_question_name="nope.example.test",error_type="NXDomain"}`)
+		require.NoError(ct, err)
+		enoughPromResults(ct, nxdomain)
+		assert.Positive(ct, totalPromCount(ct, nxdomain))
+
+		overTCP, err := pq.Query(`obi_stat_dns_lookup_duration_seconds_count{dst_port="53",dns_question_name="tcp.example.test",error_type=""}`)
+		require.NoError(ct, err)
+		enoughPromResults(ct, overTCP)
+		assert.Positive(ct, totalPromCount(ct, overTCP))
+
+		// every question gets an answer from the test server
+		timeouts, err := pq.Query(`obi_stat_dns_lookup_duration_seconds_count{dst_port="53",dns_question_name=~".*example.test",error_type="timeout"}`)
+		require.NoError(ct, err)
+		assert.Empty(ct, timeouts)
+	}, testTimeout, 100*time.Millisecond)
+}
+
+func testStatMetricsTCPResetsGo(t *testing.T) {
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		// the server aborts every connection on 8082 with SO_LINGER{0}
+		sentResults, err := pq.Query(`obi_stat_tcp_resets_total{src_port="8082",network_io_direction="transmit",network_tcp_reset_cause="application"}`)
+		require.NoError(ct, err)
+		enoughPromResults(ct, sentResults)
+		assert.Positive(ct, totalPromCount(ct, sentResults))
+
+		receivedResults, err := pq.Query(`obi_stat_tcp_resets_total{dst_port="8082",network_io_direction="receive",network_tcp_reset_cause=""}`)
+		require.NoError(ct, err)
+		enoughPromResults(ct, receivedResults)
+		assert.Positive(ct, totalPromCount(ct, receivedResults))
+
+		// connections to 19999 are refused during the handshake: they must be
+		// counted as failed connections and never as resets
+		refusedResults, err := pq.Query(`obi_stat_tcp_failed_connections_total{dst_port="19999",reason="refused"}`)
+		require.NoError(ct, err)
+		enoughPromResults(ct, refusedResults)
+	}, testTimeout, 100*time.Millisecond)
+
+	for _, query := range []string{
+		`obi_stat_tcp_resets_total{dst_port="19999"}`,
+		`obi_stat_tcp_resets_total{src_port="19999"}`,
+	} {
+		results, err := pq.Query(query)
+		require.NoError(t, err)
+		assert.Empty(t, results, query)
+	}
 }
 
 func testStatMetricsTCPRetransmitsGo(t *testing.T) {

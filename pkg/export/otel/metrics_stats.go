@@ -11,6 +11,7 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 
@@ -77,7 +78,9 @@ func newStatMeterProvider(res *resource.Resource, exporter *sdkmetric.Exporter, 
 	return metric.NewMeterProvider(
 		metric.WithResource(res),
 		metric.WithReader(metric.NewPeriodicReader(*exporter, metric.WithInterval(interval))),
+		metric.WithExemplarFilter(cfg.GetExemplarFilter()),
 		metric.WithView(statHistogramView(attributes.StatTCPRtt.OTEL, cfg.Buckets.StatTCPRttHistogram, isExponential, cfg.ExponentialHistogram)),
+		metric.WithView(statHistogramView(attributes.StatDNSLookupDuration.OTEL, cfg.Buckets.DurationHistogram, isExponential, cfg.ExponentialHistogram)),
 	)
 }
 
@@ -86,11 +89,22 @@ func statHistogramView(metricName string, buckets []float64, isExponential bool,
 }
 
 type statMetricsExporter struct {
+	provider                 *metric.MeterProvider
 	tcpRtt                   *Expirer[*ebpf.Stat, metric2.Float64Histogram, float64]
 	tcpFailedConnections     *Expirer[*ebpf.Stat, metric2.Int64Counter, int64]
 	tcpRetransmits           *Expirer[*ebpf.Stat, metric2.Int64Counter, int64]
 	tcpIo                    *Expirer[*ebpf.Stat, metric2.Int64Counter, int64]
 	tcpSuccessfulConnections *Expirer[*ebpf.Stat, metric2.Int64Counter, int64]
+	tcpResets                *Expirer[*ebpf.Stat, metric2.Int64Counter, int64]
+	tcpClosedConnections     *Expirer[*ebpf.Stat, metric2.Int64Counter, int64]
+	tcpFlowControl           *Expirer[*ebpf.Stat, metric2.Int64Counter, int64]
+	tcpECNCEPackets          *Expirer[*ebpf.Stat, metric2.Int64Counter, int64]
+	tcpReorderingEvents      *Expirer[*ebpf.Stat, metric2.Int64Counter, int64]
+	tcpOutOfOrderPackets     *Expirer[*ebpf.Stat, metric2.Int64Counter, int64]
+	tcpCongestionEvents      *Expirer[*ebpf.Stat, metric2.Int64Counter, int64]
+	dnsLookupDuration        *Expirer[*ebpf.Stat, metric2.Float64Histogram, float64]
+	socketBytes              *Expirer[*ebpf.Stat, metric2.Int64Counter, int64]
+	socketPackets            *Expirer[*ebpf.Stat, metric2.Int64Counter, int64]
 	expireTTL                time.Duration
 	in                       <-chan []*ebpf.Stat
 }
@@ -116,12 +130,25 @@ func StatMetricsExporterProvider(
 	}
 }
 
+// deltaExporter makes the SDK send each interval's increase for obi.stat.*,
+// so a new series' first value is not lost.
+type deltaExporter struct{ sdkmetric.Exporter }
+
+func (e deltaExporter) Temporality(kind sdkmetric.InstrumentKind) metricdata.Temporality {
+	switch kind {
+	case sdkmetric.InstrumentKindCounter, sdkmetric.InstrumentKindHistogram:
+		return metricdata.DeltaTemporality
+	default:
+		return e.Exporter.Temporality(kind)
+	}
+}
+
 func newStatMetricsExporter(
 	ctx context.Context,
 	ctxInfo *global.ContextInfo,
 	cfg *StatMetricsConfig,
 	input *msg.Queue[[]*ebpf.Stat],
-) (*statMetricsExporter, error) {
+) (_ *statMetricsExporter, retErr error) {
 	log := smlog()
 	log.Debug("instantiating stat metrics exporter provider")
 	exporter, err := ctxInfo.OTELMetricsExporter.Instantiate(ctx)
@@ -129,7 +156,8 @@ func newStatMetricsExporter(
 		log.Error("can't instantiate metrics exporter", "error", err)
 		return nil, err
 	}
-	exporter = instrumentMetricsExporter(ctxInfo.Metrics, exporter)
+	defer releaseExporterOnError(ctx, exporter, &retErr)
+	exporter = instrumentMetricsExporter(ctxInfo.Metrics, deltaExporter{exporter})
 
 	resource := createFilteredStatsResource(ctxInfo.NodeMeta.HostID, cfg.SelectorCfg.SelectionCfg)
 	provider := newStatMeterProvider(resource, &exporter, cfg.Metrics.Interval, cfg.Metrics)
@@ -139,9 +167,10 @@ func newStatMetricsExporter(
 		return nil, fmt.Errorf("stats OTEL exporter attributes enable: %w", err)
 	}
 
-	ebpfEvents := provider.Meter(statScopeName)
+	ebpfEvents := provider.Meter(statScopeName, obiMeterOptions()...)
 
 	nme := &statMetricsExporter{
+		provider:  provider,
 		expireTTL: cfg.Metrics.TTL,
 	}
 
@@ -229,33 +258,234 @@ func newStatMetricsExporter(
 		nme.tcpSuccessfulConnections = NewExpirer[*ebpf.Stat, metric2.Int64Counter, int64](ctx, tcpSuccessfulConnections, attrs, timeNow, cfg.Metrics.TTL)
 	}
 
+	if cfg.CommonCfg.Features.StatsTCPClosedConnections() {
+		log := log.With("metricFamily", "StatsTCPClosedConnections")
+
+		tcpClosedConnections, err := ebpfEvents.Int64Counter(
+			attributes.StatTCPClosedConnections.OTEL,
+			metric2.WithUnit(attributes.StatTCPClosedConnections.Unit),
+		)
+		if err != nil {
+			log.Error("creating stats tcp closed connection counter", "error", err)
+			return nil, err
+		}
+
+		attrs := attributes.OpenTelemetryGetters(
+			ebpf.StatGetters,
+			attrProv.For(attributes.StatTCPClosedConnections))
+
+		nme.tcpClosedConnections = NewExpirer[*ebpf.Stat, metric2.Int64Counter, int64](ctx, tcpClosedConnections, attrs, timeNow, cfg.Metrics.TTL)
+	}
+
+	if cfg.CommonCfg.Features.StatsTCPFlowControl() {
+		log := log.With("metricFamily", "StatsTCPFlowControl")
+
+		tcpFlowControl, err := ebpfEvents.Int64Counter(
+			attributes.StatTCPFlowControlEvents.OTEL,
+			metric2.WithUnit(attributes.StatTCPFlowControlEvents.Unit),
+		)
+		if err != nil {
+			log.Error("creating stats tcp flow control counter", "error", err)
+			return nil, err
+		}
+
+		attrs := attributes.OpenTelemetryGetters(
+			ebpf.StatGetters,
+			attrProv.For(attributes.StatTCPFlowControlEvents))
+
+		nme.tcpFlowControl = NewExpirer[*ebpf.Stat, metric2.Int64Counter, int64](ctx, tcpFlowControl, attrs, timeNow, cfg.Metrics.TTL)
+	}
+
+	if cfg.CommonCfg.Features.StatsTCPCongestion() {
+		log := log.With("metricFamily", "StatsTCPCongestion")
+
+		newCounter := func(name attributes.Name) (*Expirer[*ebpf.Stat, metric2.Int64Counter, int64], error) {
+			counter, err := ebpfEvents.Int64Counter(name.OTEL, metric2.WithUnit(name.Unit))
+			if err != nil {
+				log.Error("creating stats tcp congestion counter", "metric", name.OTEL, "error", err)
+				return nil, err
+			}
+			attrs := attributes.OpenTelemetryGetters(ebpf.StatGetters, attrProv.For(name))
+			return NewExpirer[*ebpf.Stat, metric2.Int64Counter, int64](ctx, counter, attrs, timeNow, cfg.Metrics.TTL), nil
+		}
+
+		if nme.tcpECNCEPackets, err = newCounter(attributes.StatTCPECNCEPackets); err != nil {
+			return nil, err
+		}
+		if nme.tcpReorderingEvents, err = newCounter(attributes.StatTCPReorderingEvents); err != nil {
+			return nil, err
+		}
+		if nme.tcpOutOfOrderPackets, err = newCounter(attributes.StatTCPOutOfOrderPackets); err != nil {
+			return nil, err
+		}
+		if nme.tcpCongestionEvents, err = newCounter(attributes.StatTCPCongestionEvents); err != nil {
+			return nil, err
+		}
+	}
+
+	if cfg.CommonCfg.Features.StatsDNSLookups() {
+		log := log.With("metricFamily", "StatsDNSLookups")
+
+		dnsLookupDuration, err := ebpfEvents.Float64Histogram(
+			attributes.StatDNSLookupDuration.OTEL,
+			metric2.WithUnit(attributes.StatDNSLookupDuration.Unit),
+		)
+		if err != nil {
+			log.Error("creating stats dns lookup duration histogram", "error", err)
+			return nil, err
+		}
+
+		attrs := attributes.OpenTelemetryGetters(
+			ebpf.StatGetters,
+			attrProv.For(attributes.StatDNSLookupDuration))
+
+		nme.dnsLookupDuration = NewExpirer[*ebpf.Stat, metric2.Float64Histogram, float64](ctx, dnsLookupDuration, attrs, timeNow, cfg.Metrics.TTL)
+	}
+
+	if cfg.CommonCfg.Features.StatsSocketTraffic() {
+		log := log.With("metricFamily", "StatsSocketTraffic")
+
+		newCounter := func(name attributes.Name) (*Expirer[*ebpf.Stat, metric2.Int64Counter, int64], error) {
+			counter, err := ebpfEvents.Int64Counter(name.OTEL, metric2.WithUnit(name.Unit))
+			if err != nil {
+				log.Error("creating stats socket traffic counter", "metric", name.OTEL, "error", err)
+				return nil, err
+			}
+			attrs := attributes.OpenTelemetryGetters(ebpf.StatGetters, attrProv.For(name))
+			return NewExpirer[*ebpf.Stat, metric2.Int64Counter, int64](ctx, counter, attrs, timeNow, cfg.Metrics.TTL), nil
+		}
+
+		if cfg.CommonCfg.Features.StatsSocketBytes() {
+			if nme.socketBytes, err = newCounter(attributes.StatSocketBytes); err != nil {
+				return nil, err
+			}
+		}
+		if cfg.CommonCfg.Features.StatsSocketPackets() {
+			if nme.socketPackets, err = newCounter(attributes.StatSocketPackets); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	if cfg.CommonCfg.Features.StatsTCPResets() {
+		log := log.With("metricFamily", "StatsTCPResets")
+
+		tcpResets, err := ebpfEvents.Int64Counter(attributes.StatTCPResets.OTEL, metric2.WithUnit(attributes.StatTCPResets.Unit))
+		if err != nil {
+			log.Error("creating stats tcp resets counter", "error", err)
+			return nil, err
+		}
+
+		attrs := attributes.OpenTelemetryGetters(
+			ebpf.StatGetters,
+			attrProv.For(attributes.StatTCPResets))
+
+		nme.tcpResets = NewExpirer[*ebpf.Stat, metric2.Int64Counter, int64](ctx, tcpResets, attrs, timeNow, cfg.Metrics.TTL)
+	}
+
 	nme.in = input.Subscribe(msg.SubscriberName("otel.StatMetricsExporter"))
 	return nme, nil
 }
 
 func (me *statMetricsExporter) Do(ctx context.Context) {
+	defer me.shutdown(ctx)
 	for i := range me.in {
 		for _, v := range i {
 			if me.tcpRtt != nil && v.TCPRtt != nil {
 				tcpRtt, attrs := me.tcpRtt.ForRecord(v)
 				tcpRtt.Record(ctx, float64(v.TCPRtt.SrttUs)/1_000_000.0, metric2.WithAttributeSet(attrs))
+				for _, us := range v.TCPRtt.Merged {
+					tcpRtt.Record(ctx, float64(us)/1_000_000.0, metric2.WithAttributeSet(attrs))
+				}
 			}
 			if me.tcpFailedConnections != nil && v.TCPFailedConnection != nil {
 				tcpFailedConnections, attrs := me.tcpFailedConnections.ForRecord(v)
-				tcpFailedConnections.Add(ctx, 1, metric2.WithAttributeSet(attrs))
+				tcpFailedConnections.Add(ctx, int64(v.Events()), metric2.WithAttributeSet(attrs))
 			}
 			if me.tcpSuccessfulConnections != nil && v.TCPSuccessfulConnection != nil {
 				tcpSuccessfulConnections, attrs := me.tcpSuccessfulConnections.ForRecord(v)
-				tcpSuccessfulConnections.Add(ctx, 1, metric2.WithAttributeSet(attrs))
+				tcpSuccessfulConnections.Add(ctx, int64(v.Events()), metric2.WithAttributeSet(attrs))
+			}
+			if me.tcpClosedConnections != nil && v.TCPClosedConnection != nil {
+				tcpClosedConnections, attrs := me.tcpClosedConnections.ForRecord(v)
+				tcpClosedConnections.Add(ctx, int64(v.Events()), metric2.WithAttributeSet(attrs))
 			}
 			if me.tcpRetransmits != nil && v.TCPRetransmit {
 				tcpRetransmits, attrs := me.tcpRetransmits.ForRecord(v)
-				tcpRetransmits.Add(ctx, 1, metric2.WithAttributeSet(attrs))
+				tcpRetransmits.Add(ctx, int64(v.Events()), metric2.WithAttributeSet(attrs))
 			}
 			if me.tcpIo != nil && v.TCPIo != nil {
 				tcpIo, attrs := me.tcpIo.ForRecord(v)
 				tcpIo.Add(ctx, int64(v.TCPIo.Bytes), metric2.WithAttributeSet(attrs))
 			}
+			if me.tcpFlowControl != nil && v.TCPFlowControl != nil {
+				tcpFlowControl, attrs := me.tcpFlowControl.ForRecord(v)
+				tcpFlowControl.Add(ctx, int64(v.Events()), metric2.WithAttributeSet(attrs))
+			}
+			if v.TCPCongestion != nil {
+				me.recordTCPCongestion(ctx, v)
+			}
+			if me.tcpCongestionEvents != nil && v.TCPCongestionEvent != nil {
+				tcpCongestionEvents, attrs := me.tcpCongestionEvents.ForRecord(v)
+				tcpCongestionEvents.Add(ctx, int64(v.Events()), metric2.WithAttributeSet(attrs))
+			}
+			if me.dnsLookupDuration != nil && v.DNSLookup != nil {
+				dnsLookupDuration, attrs := me.dnsLookupDuration.ForRecord(v)
+				dnsLookupDuration.Record(ctx, v.DNSLookup.Duration.Seconds(), metric2.WithAttributeSet(attrs))
+				for _, d := range v.DNSLookup.Merged {
+					dnsLookupDuration.Record(ctx, d.Seconds(), metric2.WithAttributeSet(attrs))
+				}
+			}
+			if me.tcpResets != nil && v.TCPReset != nil {
+				tcpResets, attrs := me.tcpResets.ForRecord(v)
+				tcpResets.Add(ctx, 1, metric2.WithAttributeSet(attrs))
+			}
+			if v.SocketTraffic != nil {
+				me.recordSocketTraffic(ctx, v)
+			}
 		}
+	}
+}
+
+// recordTCPCongestion adds each counter increase of the event, skipping the ones that did not change.
+func (me *statMetricsExporter) recordTCPCongestion(ctx context.Context, v *ebpf.Stat) {
+	for _, c := range []struct {
+		expirer *Expirer[*ebpf.Stat, metric2.Int64Counter, int64]
+		delta   uint32
+	}{
+		{me.tcpECNCEPackets, v.TCPCongestion.DeliveredCE},
+		{me.tcpReorderingEvents, v.TCPCongestion.ReordSeen},
+		{me.tcpOutOfOrderPackets, v.TCPCongestion.RcvOOOPack},
+	} {
+		if c.expirer == nil || c.delta == 0 {
+			continue
+		}
+		counter, attrs := c.expirer.ForRecord(v)
+		counter.Add(ctx, int64(c.delta), metric2.WithAttributeSet(attrs))
+	}
+}
+
+// recordSocketTraffic adds the bytes and packets of the stat, skipping the ones that are zero.
+func (me *statMetricsExporter) recordSocketTraffic(ctx context.Context, v *ebpf.Stat) {
+	for _, c := range []struct {
+		expirer *Expirer[*ebpf.Stat, metric2.Int64Counter, int64]
+		value   uint64
+	}{
+		{me.socketBytes, v.SocketTraffic.Bytes},
+		{me.socketPackets, v.SocketTraffic.Packets},
+	} {
+		if c.expirer == nil || c.value == 0 {
+			continue
+		}
+		counter, attrs := c.expirer.ForRecord(v)
+		counter.Add(ctx, int64(c.value), metric2.WithAttributeSet(attrs))
+	}
+}
+
+func (me *statMetricsExporter) shutdown(ctx context.Context) {
+	shutdownCtx, cancel := shutdownContext(ctx)
+	defer cancel()
+	if err := me.provider.Shutdown(shutdownCtx); err != nil {
+		smlog().Warn("error shutting down stat metrics provider", "error", err)
 	}
 }

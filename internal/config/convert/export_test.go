@@ -66,6 +66,7 @@ func TestRuntimeToV2DefaultConfig(t *testing.T) {
 	require.Equal(t, schema.Duration(5*time.Second), value(t, ext.Capture.Policy, "min_process_age"))
 
 	require.Equal(t, 500, value(t, ext.Capture.Engine, "batching", "wakeup_len"))
+	require.Equal(t, 4096, value(t, ext.Capture.Engine, "batching", "stats", "wakeup_bytes"))
 	require.Equal(t, 100, value(t, ext.Capture.Engine, "batching", "batch_length"))
 	require.Equal(t, schema.Duration(time.Second), value(t, ext.Capture.Engine, "batching", "batch_timeout"))
 	require.Equal(t, config.TCBackendAuto, value(t, ext.Capture.Engine, "traffic", "control_backend"))
@@ -230,6 +231,7 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	cfg.EBPF.BpfDebug = true
 	cfg.EBPF.ProtocolDebug = true
 	cfg.EBPF.WakeupLen = 8
+	cfg.EBPF.StatsWakeupDataBytes = 8192
 	cfg.EBPF.BatchLength = 9
 	cfg.EBPF.BatchTimeout = 10 * time.Second
 	cfg.EBPF.ContextPropagation = config.ContextPropagationAll
@@ -239,6 +241,7 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	cfg.EBPF.TCBackend = config.TCBackendTCX
 	cfg.EBPF.HighRequestVolume = true
 	cfg.EBPF.BPFFSPath = "/tmp/bpf"
+	cfg.EBPF.CgroupFSPath = "/host/sys/fs/cgroup"
 	cfg.EBPF.MaxTransactionTime = 11 * time.Second
 	cfg.EBPF.TrackRequestHeaders = true
 	cfg.EBPF.HTTPRequestTimeout = 12 * time.Second
@@ -250,6 +253,7 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	cfg.EBPF.BufferSizes.TCP = 105
 	cfg.EBPF.BufferSizes.Aerospike = 106
 	cfg.EBPF.HeuristicSQLDetect = true
+	cfg.Attributes.SanitizeSQLQueryText = true
 	cfg.EBPF.MySQLPreparedStatementsCacheSize = 200
 	cfg.EBPF.PostgresPreparedStatementsCacheSize = 201
 	cfg.EBPF.MSSQLPreparedStatementsCacheSize = 202
@@ -362,12 +366,14 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	require.Equal(t, schema.Duration(6*time.Second), value(t, ext.Capture.Policy, "min_process_age"))
 	require.Equal(t, true, value(t, ext.Capture.Engine, "pid_filter", "disabled"))
 	require.Equal(t, 8, value(t, ext.Capture.Engine, "batching", "wakeup_len"))
+	require.Equal(t, 8192, value(t, ext.Capture.Engine, "batching", "stats", "wakeup_bytes"))
 	require.Equal(t, 9, value(t, ext.Capture.Engine, "batching", "batch_length"))
 	require.Equal(t, schema.Duration(10*time.Second), value(t, ext.Capture.Engine, "batching", "batch_timeout"))
 	require.Equal(t, config.ContextPropagationAll, value(t, ext.Capture.Engine, "propagation", "context_propagation"))
 	require.Equal(t, config.TCBackendTCX, value(t, ext.Capture.Engine, "traffic", "control_backend"))
 	require.Equal(t, true, value(t, ext.Capture.Engine, "traffic", "high_request_volume"))
 	require.Equal(t, "/tmp/bpf", value(t, ext.Capture.Engine, "bpf_filesystem", "path"))
+	require.Equal(t, "/host/sys/fs/cgroup", value(t, ext.Capture.Engine, "cgroup_filesystem", "path"))
 
 	require.Equal(t, true, value(t, ext.Capture.Instrumentation, "http", "enabled", "traces"))
 	require.Equal(t, true, value(t, ext.Capture.Instrumentation, "http", "enabled", "metrics"))
@@ -383,6 +389,7 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	require.Equal(t, uint32(101), value(t, ext.Capture.Instrumentation, "sql", "mysql", "buffer_size"))
 	require.Equal(t, uint32(103), value(t, ext.Capture.Instrumentation, "sql", "mssql", "buffer_size"))
 	require.Equal(t, 202, value(t, ext.Capture.Instrumentation, "sql", "mssql", "prepared_statements_cache_size"))
+	require.Equal(t, true, value(t, ext.Capture.Instrumentation, "sql", "sanitize_query_text"))
 	require.Equal(t, true, value(t, ext.Capture.Instrumentation, "redis", "db_cache", "enabled"))
 	require.Equal(t, 204, value(t, ext.Capture.Instrumentation, "kafka", "topic_uuid_cache_size"))
 	require.Equal(t, uint32(106), value(t, ext.Capture.Instrumentation, "aerospike", "buffer_size"))
@@ -428,7 +435,8 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	require.Equal(t, 901, value(t, ext.Enrich, "service_name", "cache", "size"))
 	require.Equal(t, schema.Duration(902*time.Second), value(t, ext.Enrich, "service_name", "cache", "ttl"))
 	require.Equal(t, "unknown-out", value(t, ext.Enrich, "service_name", "unresolved_hosts", "names", "outgoing"))
-	require.Equal(t, cfg.Attributes.Select, value(t, ext.Enrich, "attributes", "select"))
+	require.Equal(t, cfg.Attributes.Select, ext.Capture.Attributes.Select)
+	require.Empty(t, ext.Enrich.Attributes.Select)
 	require.Equal(t, schema.ExtraGroupAttributes(cfg.Attributes.ExtraGroupAttributes), value(t, ext.Enrich, "attributes", "extra_group_attributes"))
 	require.Equal(t, schema.Duration(45*time.Second), value(t, ext.Enrich, "attributes", "metadata_retry", "timeout"))
 	require.Equal(t, schema.Duration(46*time.Millisecond), value(t, ext.Enrich, "attributes", "metadata_retry", "start_interval"))
@@ -602,6 +610,7 @@ func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {
 	cfg.EBPF.PayloadExtraction.HTTP.AWS.Enabled = true
 	cfg.EBPF.PayloadExtraction.HTTP.SQLPP.Enabled = true
 	cfg.EBPF.PayloadExtraction.HTTP.SQLPP.EndpointPatterns = []string{"/query", "/analytics"}
+	cfg.EBPF.PayloadExtraction.HTTP.SQLPP.PreparedStatementsCacheSize = 77
 	cfg.EBPF.PayloadExtraction.HTTP.GenAI.OpenAI.Enabled = true
 	cfg.EBPF.PayloadExtraction.HTTP.GenAI.Anthropic.Enabled = true
 	cfg.EBPF.PayloadExtraction.HTTP.GenAI.Gemini.Enabled = true
@@ -612,6 +621,7 @@ func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {
 	cfg.EBPF.PayloadExtraction.HTTP.GenAI.Rerank.Enabled = true
 	cfg.EBPF.PayloadExtraction.HTTP.GenAI.Retrieval.Enabled = true
 	cfg.EBPF.PayloadExtraction.HTTP.GenAI.Ollama.Enabled = true
+	cfg.EBPF.PayloadExtraction.HTTP.GenAI.Cohere.Enabled = true
 	cfg.EBPF.PayloadExtraction.HTTP.JSONRPC.Enabled = true
 	cfg.EBPF.PayloadExtraction.HTTP.Enrichment.Enabled = true
 	cfg.EBPF.PayloadExtraction.HTTP.Enrichment.Policy.DefaultAction.Headers = config.HTTPParsingActionInclude
@@ -678,9 +688,10 @@ func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {
 
 	require.ElementsMatch(t, []string{
 		"graphql", "elasticsearch", "aws", "sqlpp", "openai", "anthropic", "gemini",
-		"qwen", "bedrock", "mcp", "embedding", "rerank", "retrieval", "ollama", "jsonrpc", "enrichment",
+		"qwen", "bedrock", "mcp", "embedding", "rerank", "retrieval", "ollama", "cohere", "jsonrpc", "enrichment",
 	}, value(t, ext.Capture.Instrumentation, "http", "payload_extraction", "enabled"))
 	require.Equal(t, []string{"/query", "/analytics"}, value(t, ext.Capture.Instrumentation, "http", "payload_extraction", "sqlpp", "endpoint_patterns"))
+	require.Equal(t, 77, value(t, ext.Capture.Instrumentation, "http", "payload_extraction", "sqlpp", "prepared_statements_cache_size"))
 	require.Equal(t, config.HTTPParsingActionInclude, value(t, ext.Capture.Instrumentation, "http", "payload_extraction", "enrichment", "policy", "default_action", "headers"))
 	require.Equal(t, config.HTTPParsingActionObfuscate, value(t, ext.Capture.Instrumentation, "http", "payload_extraction", "enrichment", "policy", "default_action", "body"))
 	require.Equal(t, "[redacted]", value(t, ext.Capture.Instrumentation, "http", "payload_extraction", "enrichment", "policy", "obfuscation_string"))
@@ -720,6 +731,28 @@ func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {
 	require.NotNil(t, ext.Capture.Rules[2].Refine.HTTP)
 	require.Equal(t, []string{"/orders/{id}"}, *ext.Capture.Rules[2].Refine.HTTP.Routes.Incoming.Patterns)
 	require.Equal(t, []string{"/inventory/{id}"}, *ext.Capture.Rules[2].Refine.HTTP.Routes.Outgoing.Patterns)
+}
+
+func TestRuntimeToV2PreservesLogsExportMode(t *testing.T) {
+	t.Parallel()
+
+	cfg := defaultRuntimeConfig()
+	exports := services.NewExportModes()
+	exports.AllowTraces()
+	exports.AllowLogs()
+	cfg.Discovery.Instrument = services.GlobDefinitionCriteria{
+		{Path: services.NewGlob("/app/*"), ExportModes: exports},
+	}
+
+	_, ext := RuntimeToV2(&cfg)
+	got, err := V2ToRuntime(ext)
+	require.NoError(t, err)
+
+	require.Len(t, got.Discovery.Instrument, 1)
+	modes := got.Discovery.Instrument[0].ExportModes
+	require.True(t, modes.CanExportTraces())
+	require.True(t, modes.CanExportLogs())
+	require.False(t, modes.CanExportMetrics())
 }
 
 func TestRuntimeToV2EffectiveDiscoveryCriteria(t *testing.T) {
@@ -967,6 +1000,42 @@ func TestRuntimeToV2HTTPBodySizeMetrics(t *testing.T) {
 	})
 }
 
+func TestRuntimeToV2RequestPhaseSpansRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		httpDisabled bool
+	}{
+		{name: "enabled"},
+		{name: "HTTP disabled", httpDisabled: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := defaultRuntimeConfig()
+			cfg.Traces.DisableHTTPRequestPhaseSpans = tt.httpDisabled
+
+			doc, _ := RuntimeToV2(&cfg)
+
+			data, err := yaml.Marshal(doc)
+			require.NoError(t, err)
+
+			parsedDoc, parsedExt, err := schema.ParseStandaloneYAML(data)
+			require.NoError(t, err)
+
+			require.Equal(t, !tt.httpDisabled, value(t, parsedExt.Capture.Instrumentation, "http", "enabled", "request_phase_spans"))
+
+			got, err := DocumentToRuntime(parsedDoc)
+			require.NoError(t, err)
+
+			require.Equal(t, tt.httpDisabled, got.Traces.DisableHTTPRequestPhaseSpans)
+		})
+	}
+}
+
 func TestRuntimeToV2MetricInstrumentationsUseEnabledExporters(t *testing.T) {
 	t.Parallel()
 
@@ -1046,6 +1115,19 @@ func TestRuntimeToV2StatsEnablementAndFeatures(t *testing.T) {
 			"tcp_retransmits",
 			"tcp_io",
 		}, value(t, ext.Capture.Network, "stats", "features"))
+	})
+
+	t.Run("exports the v2-only resets family", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := defaultRuntimeConfig()
+		cfg.Prometheus.Port = 9090
+		cfg.Metrics.Features = export.FeatureStatsTCPResets
+
+		_, ext := RuntimeToV2(&cfg)
+
+		require.Equal(t, true, value(t, ext.Capture.Network, "stats", "enabled"))
+		require.ElementsMatch(t, []string{"tcp_resets"}, value(t, ext.Capture.Network, "stats", "features"))
 	})
 
 	t.Run("preserves individual stat families", func(t *testing.T) {
@@ -1225,4 +1307,12 @@ func keys(root any) []string {
 		}
 	}
 	return out
+}
+
+func TestMigratedV1PreservesNameResolverDefaults(t *testing.T) {
+	cfg := obi.DefaultConfig
+	_, ext := RuntimeToV2(&cfg)
+	migrated, err := V2ToRuntime(ext)
+	require.NoError(t, err)
+	require.Equal(t, []transform.Source{transform.SourceK8s, transform.SourceECS}, migrated.NameResolver.Sources)
 }

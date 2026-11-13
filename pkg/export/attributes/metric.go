@@ -398,6 +398,18 @@ var (
 		Unit:    "By",
 		Type:    InstrumentCounter,
 	})
+	DotnetGCHeapSize = metric(Name{
+		Section: "dotnet.gc.last_collection.heap.size",
+		OTEL:    "dotnet.gc.last_collection.heap.size",
+		Unit:    "By",
+		Type:    InstrumentUpDownCounter,
+	})
+	DotnetGCHeapFragmentation = metric(Name{
+		Section: "dotnet.gc.last_collection.heap.fragmentation.size",
+		OTEL:    "dotnet.gc.last_collection.heap.fragmentation.size",
+		Unit:    "By",
+		Type:    InstrumentUpDownCounter,
+	})
 	DotnetGCCommittedMemory = metric(Name{
 		Section: "dotnet.gc.last_collection.memory.committed_size",
 		OTEL:    "dotnet.gc.last_collection.memory.committed_size",
@@ -450,6 +462,12 @@ var (
 		Section: "dotnet.monitor.lock_contentions",
 		OTEL:    "dotnet.monitor.lock_contentions",
 		Unit:    "{contention}",
+		Type:    InstrumentCounter,
+	})
+	DotnetExceptions = metric(Name{
+		Section: "dotnet.exceptions",
+		OTEL:    "dotnet.exceptions",
+		Unit:    "{exception}",
 		Type:    InstrumentCounter,
 	})
 	DotnetTimerCount = metric(Name{
@@ -677,6 +695,68 @@ var (
 		Section: "obi.stat.tcp.successful.connections",
 		OTEL:    "obi.stat.tcp.successful.connections",
 		Type:    InstrumentCounter,
+	})
+	StatTCPResets = metric(Name{
+		Section: "obi.stat.tcp.resets",
+		OTEL:    "obi.stat.tcp.resets",
+		Unit:    "{segment}",
+		Type:    InstrumentCounter,
+	})
+	StatTCPClosedConnections = metric(Name{
+		Section: "obi.stat.tcp.closed.connections",
+		OTEL:    "obi.stat.tcp.closed.connections",
+		Unit:    "{connection}",
+		Type:    InstrumentCounter,
+	})
+	// the attributes.select sections are normalized: their underscores become dots
+	StatTCPFlowControlEvents = metric(Name{
+		Section: "obi.stat.tcp.flow.control.events",
+		OTEL:    "obi.stat.tcp.flow_control.events",
+		Unit:    "{event}",
+		Type:    InstrumentCounter,
+	})
+	StatTCPECNCEPackets = metric(Name{
+		Section: "obi.stat.tcp.ecn.ce.packets",
+		OTEL:    "obi.stat.tcp.ecn.ce.packets",
+		Unit:    "{packet}",
+		Type:    InstrumentCounter,
+	})
+	StatTCPReorderingEvents = metric(Name{
+		Section: "obi.stat.tcp.reordering.events",
+		OTEL:    "obi.stat.tcp.reordering.events",
+		Unit:    "{event}",
+		Type:    InstrumentCounter,
+	})
+	StatTCPOutOfOrderPackets = metric(Name{
+		Section: "obi.stat.tcp.out.of.order.packets",
+		OTEL:    "obi.stat.tcp.out_of_order.packets",
+		Unit:    "{packet}",
+		Type:    InstrumentCounter,
+	})
+	StatTCPCongestionEvents = metric(Name{
+		Section: "obi.stat.tcp.congestion.events",
+		OTEL:    "obi.stat.tcp.congestion.events",
+		Unit:    "{event}",
+		Type:    InstrumentCounter,
+	})
+	// the attributes.select section drops the trailing ".bytes", like NetworkFlow
+	StatSocketBytes = metric(Name{
+		Section: "obi.stat",
+		OTEL:    "obi.stat.bytes",
+		Unit:    "By",
+		Type:    InstrumentCounter,
+	})
+	StatSocketPackets = metric(Name{
+		Section: "obi.stat.packets",
+		OTEL:    "obi.stat.packets",
+		Unit:    "{packet}",
+		Type:    InstrumentCounter,
+	})
+	StatDNSLookupDuration = metric(Name{
+		Section: "obi.stat.dns.lookup.duration",
+		OTEL:    "obi.stat.dns.lookup.duration",
+		Unit:    "s",
+		Type:    InstrumentHistogram,
 	})
 )
 

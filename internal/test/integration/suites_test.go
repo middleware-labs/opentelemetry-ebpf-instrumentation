@@ -5,6 +5,7 @@ package integration
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 	"path"
 	"strings"
@@ -349,7 +350,7 @@ func TestSuite_Java(t *testing.T) {
 
 	compose.Env = append(compose.Env, `TESTSERVER_IMAGE=`+obiTestImgJavaNative)
 	require.NoError(t, compose.Up())
-	t.Run("Java RED metrics", func(t *testing.T) { testREDMetricsJavaHTTP(t, "greeting") })
+	t.Run("Java RED metrics", func(t *testing.T) { testREDMetricsJavaHTTP(t, "greeting", "integration-test") })
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
@@ -361,23 +362,37 @@ func TestSuite_Java_PID(t *testing.T) {
 
 	compose.Env = append(compose.Env, `JAVA_OPEN_PORT=8085`, `JAVA_EXECUTABLE_PATH=`, `TESTSERVER_IMAGE=`+obiTestImgJavaJar)
 	require.NoError(t, compose.Up())
-	t.Run("Java RED metrics", func(t *testing.T) { testREDMetricsJavaHTTP(t, "greeting-service") })
+	t.Run("Java RED metrics", func(t *testing.T) {
+		testREDMetricsJavaHTTP(t, "greeting-service", "integration-test")
+	})
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
 // Same as Java Test suite, but searching the executable by port instead of executable name. We also run the jar version of Java instead of native image
 func TestSuite_Java_OpenPort(t *testing.T) {
-	compose, err := docker.ComposeSuite("docker-compose-java.yml", path.Join(pathOutput, "test-suite-java-openport.log"))
+	compose, err := docker.ComposeSuiteWithConfigMigration(
+		"docker-compose-java.yml",
+		path.Join(pathOutput, "test-suite-java-openport.log"),
+		docker.ConfigMigration{
+			Source: "obi-config-java.yml",
+			Output: "obi-config-java-v2.yml",
+			Image:  "hatest-javaobi",
+		},
+	)
 	require.NoError(t, err)
 
 	compose.Env = append(compose.Env, `JAVA_EXECUTABLE_PATH=`, `TESTSERVER_IMAGE=`+obiTestImgJavaJar)
 	require.NoError(t, compose.Up())
-	t.Run("Java RED metrics", func(t *testing.T) { testREDMetricsJavaHTTP(t, "greeting-service") })
+	t.Cleanup(func() {
+		require.NoError(t, compose.Close())
+	})
+	t.Cleanup(func() {
+		runWeaverValidation(t)
+	})
 
-	runWeaverValidation(t)
-
-	require.NoError(t, compose.Close())
+	requireOBIConfigV2(t, compose, "java")
+	t.Run("Java RED metrics", func(t *testing.T) { testREDMetricsJavaHTTP(t, "greeting-service", "") })
 }
 
 // Test that we can also instrument when running with host network mode
@@ -387,7 +402,7 @@ func TestSuite_Java_Host_Network(t *testing.T) {
 
 	compose.Env = append(compose.Env, `TESTSERVER_IMAGE=`+obiTestImgJavaNative)
 	require.NoError(t, compose.Up())
-	t.Run("Java RED metrics", func(t *testing.T) { testREDMetricsJavaHTTP(t, "greeting") })
+	t.Run("Java RED metrics", func(t *testing.T) { testREDMetricsJavaHTTP(t, "greeting", "integration-test") })
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
@@ -603,6 +618,7 @@ func TestSuite_Python(t *testing.T) {
 	t.Run("Python RED metrics", testREDMetricsPythonHTTP)
 	t.Run("Python RED metrics with timeouts", testREDMetricsTimeoutPythonHTTP)
 	t.Run("Python DNS RED metrics", testREDMetricsDNSPython)
+	t.Run("Python forked children", testForkedChildrenPython)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
@@ -1001,6 +1017,22 @@ func TestSuite_PythonCouchbase(t *testing.T) {
 	t.Run("Python Couchbase SQL++ metrics", testREDMetricsPythonCouchbaseSQLPP)
 	t.Run("Python Couchbase SQL++ with context", testREDMetricsPythonCouchbaseSQLPPWithContext)
 	t.Run("Python Couchbase SQL++ error", testREDMetricsPythonCouchbaseSQLPPError)
+	t.Run("Python Couchbase SQL++ prepared", testREDMetricsCouchbaseSQLPPPrepared("main",
+		couchbasePreparedStatement{operation: "SELECT", text: couchbasePreparedSelect}))
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
+func TestSuite_GoCouchbase(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-go-couchbase.yml", path.Join(pathOutput, "test-suite-go-couchbase.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
+	require.NoError(t, compose.Up())
+	t.Run("Go Couchbase SQL++ adhoc", testREDMetricsGoCouchbaseSQLPPAdhoc)
+	t.Run("Go Couchbase SQL++ prepared", testREDMetricsCouchbaseSQLPPPrepared("testserver",
+		couchbasePreparedStatement{operation: "SELECT", text: couchbasePreparedSelect},
+		couchbasePreparedStatement{operation: "DELETE", text: couchbasePreparedDelete}))
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
@@ -1614,4 +1646,18 @@ func KernelLockdownMode() bool {
 	}
 
 	return false
+}
+
+func kernelAtLeast(t *testing.T, wantMajor, wantMinor int) bool {
+	t.Helper()
+
+	release, err := os.ReadFile("/proc/sys/kernel/osrelease")
+	require.NoError(t, err)
+
+	var major, minor int
+	if _, err := fmt.Sscanf(string(release), "%d.%d", &major, &minor); err != nil {
+		return false
+	}
+
+	return major > wantMajor || (major == wantMajor && minor >= wantMinor)
 }

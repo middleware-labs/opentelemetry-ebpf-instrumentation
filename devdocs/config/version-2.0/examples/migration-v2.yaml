@@ -31,6 +31,18 @@ extensions:
     obi:
         version: "2.0"
         capture:
+            attributes:
+                select:
+                    http.server.request.duration:
+                        include: []
+                        exclude:
+                            - http.route
+                    traces:
+                        include:
+                            - service.peer.name
+                        exclude: []
+            exceptions:
+                enabled: false
             policy:
                 default_action: exclude
                 match_order: first_match_wins
@@ -86,6 +98,7 @@ extensions:
                         traces: true
                         metrics: true
                         body_size_metrics: true
+                        request_phase_spans: true
                     filters:
                         traces:
                             http.request.method:
@@ -126,6 +139,7 @@ extensions:
                         sqlpp:
                             endpoint_patterns:
                                 - /query/service
+                            prepared_statements_cache_size: 1024
                         enrichment:
                             policy:
                                 default_action:
@@ -158,6 +172,7 @@ extensions:
                             http.request.method:
                                 not_match: OPTIONS
                     heuristic_detect: false
+                    sanitize_query_text: false
                     mysql:
                         buffer_size: 0
                         prepared_statements_cache_size: 1024
@@ -268,6 +283,7 @@ extensions:
             network:
                 capture:
                     enabled: false
+                    features: []
                     source: socket_filter
                     buffer_size: 0
                     endpoint_identity:
@@ -342,6 +358,14 @@ extensions:
                             cache:
                                 size: 256
                                 ttl: 1h0m0s
+                    socket_traffic:
+                        protocols:
+                            - tcp
+                            - udp
+                        read_interval: 10s
+                        max_entries: 65536
+                        connection_rollup: false
+                        tcp_metrics: false
                     diagnostics:
                         print_stats: false
             metrics:
@@ -360,6 +384,8 @@ extensions:
                     wakeup_len: 500
                     batch_length: 100
                     batch_timeout: 1s
+                    stats:
+                        wakeup_bytes: 4096
                 propagation:
                     context_propagation: disabled
                     override_bpfloop_enabled: false
@@ -375,6 +401,8 @@ extensions:
                     global_scale_factor: 0
                 bpf_filesystem:
                     path: /sys/fs/bpf/
+                cgroup_filesystem:
+                    path: ""
             safety:
                 enforce_system_capabilities: false
             channels:
@@ -387,6 +415,7 @@ extensions:
                 metrics:
                     reporters_cache_len: 256
                     ttl: 5m0s
+                    connection_info_ttl: 15m0s
         enrich:
             enrichers:
                 kubernetes:
@@ -416,12 +445,38 @@ extensions:
                             service_name: ""
                             service_namespace: ""
                 cloud:
+                    detection:
+                        enabled: true
                     cluster_name: ""
                     region: ""
                     refresh_interval: 30s
                     route53:
                         refresh_interval: 5m0s
                         hosted_zone_ids: []
+                peer_metadata:
+                    enabled: false
+                    mode: peer
+                    listen_address: ""
+                    port: 8998
+                    peer_cidrs: []
+                    refresh_interval: 10s
+                    caller_ttl: 1m0s
+                    cache_ttl: 1m0s
+                    request_timeout: 2s
+                    max_peers: 1024
+                    max_concurrent: 8
+                    max_caller_entries: 16384
+                    max_response_bytes: 1048576
+                    max_cache_bytes: 67108864
+                    token: ""
+                    tls:
+                        enabled: false
+                        cert_file: ""
+                        key_file: ""
+                        ca_file: ""
+                        server_name: ""
+                    central:
+                        address: ""
             service_name:
                 unresolved_hosts:
                     names:

@@ -26,3 +26,10 @@ func TestKernelTimeConvertsMonotonicToWallClock(t *testing.T) {
 	older := KernelTime(uint64(mono - time.Minute))
 	require.WithinDuration(t, recent.Add(-time.Minute), older, tolerance)
 }
+
+func TestMonoClockFollowsMonoTimeNow(t *testing.T) {
+	clock := MonoClock()
+	time.Sleep(20 * time.Millisecond)
+	// only the gap between the two readings separates them
+	require.InDelta(t, float64(MonoTimeNow()), float64(clock()), float64(5*time.Millisecond))
+}

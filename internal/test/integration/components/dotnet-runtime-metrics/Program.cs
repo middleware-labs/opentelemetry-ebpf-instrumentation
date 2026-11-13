@@ -44,6 +44,7 @@ static object Snapshot()
 
 static async Task RunHttp()
 {
+    _ = ExceptionReference.Snapshot();
     using var listener = new HttpListener();
     listener.Prefixes.Add("http://*:8080/");
     listener.Start();
@@ -64,11 +65,35 @@ static async Task RunHttp()
         {
             RuntimeLoad.Release();
         }
+        else if (context.Request.HttpMethod == "POST" && context.Request.Url?.AbsolutePath == "/exceptions-run")
+        {
+            result = ExceptionReference.Run();
+        }
         else if (context.Request.HttpMethod == "POST" && context.Request.Url?.AbsolutePath == "/cumulative-run")
         {
             var before = RuntimeSnapshot.Capture();
             CumulativeLoad.Run();
             result = new { before, after = RuntimeSnapshot.Capture() };
+        }
+        else if (context.Request.HttpMethod == "POST" && context.Request.Url?.AbsolutePath == "/heap-load")
+        {
+            HeapLoad.Allocate();
+        }
+        else if (context.Request.HttpMethod == "POST" && context.Request.Url?.AbsolutePath == "/heap-release")
+        {
+            HeapLoad.Release();
+        }
+        else if (context.Request.HttpMethod == "POST" && context.Request.Url?.AbsolutePath == "/fragmentation-load")
+        {
+            FragmentationLoad.Allocate();
+        }
+        else if (context.Request.HttpMethod == "POST" && context.Request.Url?.AbsolutePath == "/fragmentation-background")
+        {
+            FragmentationLoad.Background();
+        }
+        else if (context.Request.HttpMethod == "POST" && context.Request.Url?.AbsolutePath == "/fragmentation-release")
+        {
+            FragmentationLoad.Release();
         }
         else if (context.Request.HttpMethod == "POST" && context.Request.Url?.AbsolutePath == "/cpu-run")
         {
@@ -98,11 +123,13 @@ static async Task RunHttp()
 sealed record RuntimeSnapshot(int pid, string runtimeVersion, int gen0, int gen1, int gen2,
     long workingSet, long gcCommitted, int threadCount, long queueLength, long timerCount, int assemblyCount,
     long allocated, double pauseTime, long compiledIL, long compiledMethods, double compilationTime,
-    long completedItems, long lockContentions, int cpuCount, double cpuUser, double cpuSystem)
+    long completedItems, long lockContentions, int cpuCount, double cpuUser, double cpuSystem, long gcIndex, long[] heapSizes,
+    long[] heapFragmentation, bool serverGC, long backgroundGCIndex)
 {
     public static RuntimeSnapshot Capture()
     {
         using var process = Process.GetCurrentProcess();
+        var gcInfo = GC.GetGCMemoryInfo();
         return new(
         Environment.ProcessId, Environment.Version.ToString(),
         GC.CollectionCount(0), GC.CollectionCount(1), GC.CollectionCount(2),
@@ -112,7 +139,66 @@ sealed record RuntimeSnapshot(int pid, string runtimeVersion, int gen0, int gen1
         GC.GetTotalAllocatedBytes(precise: true), GC.GetTotalPauseDuration().TotalSeconds,
         JitInfo.GetCompiledILBytes(), JitInfo.GetCompiledMethodCount(), JitInfo.GetCompilationTime().TotalSeconds,
         ThreadPool.CompletedWorkItemCount, Monitor.LockContentionCount,
-        Environment.ProcessorCount, process.UserProcessorTime.TotalSeconds, process.PrivilegedProcessorTime.TotalSeconds);
+        Environment.ProcessorCount, process.UserProcessorTime.TotalSeconds, process.PrivilegedProcessorTime.TotalSeconds,
+        gcInfo.Index, gcInfo.GenerationInfo.ToArray().Select(generation => generation.SizeAfterBytes).ToArray(),
+        gcInfo.GenerationInfo.ToArray().Select(generation => generation.FragmentationAfterBytes).ToArray(),
+        GCSettings.IsServerGC, GC.GetGCMemoryInfo(GCKind.Background).Index);
+    }
+}
+
+static class FragmentationLoad
+{
+    private static readonly List<byte[]> retained = new();
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static void Allocate()
+    {
+        for (int i = 0; i < 4096; i++) retained.Add(new byte[8192]);
+        for (int i = 0; i < 128; i++) retained.Add(new byte[256 * 1024]);
+        for (int i = 0; i < 128; i++) retained.Add(GC.AllocateArray<byte>(32768, pinned: true));
+        for (int i = retained.Count - 1; i >= 0; i -= 2) retained.RemoveAt(i);
+        GC.Collect(2, GCCollectionMode.Forced, blocking: true, compacting: false);
+    }
+
+    public static void Background()
+    {
+        long previous = GC.GetGCMemoryInfo(GCKind.Background).Index;
+        GC.Collect(2, GCCollectionMode.Forced, blocking: false, compacting: false);
+        // Exercise foreground collections while a background collection may be active.
+        for (int i = 0; i < 4; i++) GC.Collect(0, GCCollectionMode.Forced, blocking: true);
+        if (!SpinWait.SpinUntil(() => GC.GetGCMemoryInfo(GCKind.Background).Index > previous, TimeSpan.FromSeconds(10)))
+            throw new TimeoutException("Background collection did not complete");
+    }
+
+    public static void Release()
+    {
+        retained.Clear();
+        GCSettings.LargeObjectHeapCompactionMode = GCLargeObjectHeapCompactionMode.CompactOnce;
+        GC.Collect(2, GCCollectionMode.Forced, blocking: true, compacting: true);
+    }
+}
+
+static class HeapLoad
+{
+    private static readonly List<byte[]> retained = new();
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static void Allocate()
+    {
+        for (int i = 0; i < 128; i++) retained.Add(new byte[32768]);
+        for (int i = 0; i < 16; i++) retained.Add(new byte[1024 * 1024]);
+        for (int i = 0; i < 16; i++) retained.Add(GC.AllocateArray<byte>(32768, pinned: true));
+        GC.Collect(2, GCCollectionMode.Forced, blocking: true, compacting: true);
+        // Promote a separate batch to gen1 after the full collection.
+        for (int i = 0; i < 32; i++) retained.Add(new byte[32768]);
+        GC.Collect(0, GCCollectionMode.Forced, blocking: true);
+    }
+
+    public static void Release()
+    {
+        retained.Clear();
+        GCSettings.LargeObjectHeapCompactionMode = GCLargeObjectHeapCompactionMode.CompactOnce;
+        GC.Collect(2, GCCollectionMode.Forced, blocking: true, compacting: true);
     }
 }
 

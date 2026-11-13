@@ -14,6 +14,17 @@ enum stat_type : u8 {
     k_stat_type_tcp_retransmit = 3,
     k_stat_type_tcp_io = 4,
     k_stat_type_tcp_successful_connection = 5,
+    k_stat_type_tcp_reset = 6,
+    // not ring buffer events: user space builds them from the socket traffic rows
+    k_stat_type_tcp_flow_control = 7,
+    k_stat_type_tcp_congestion = 8,
+    k_stat_type_tcp_closed_connection = 9,
+    // the packets of the stats_dns_events ring buffer
+    k_stat_type_dns_packet = 10,
+    // not a ring buffer event: user space reads these stats from the socket_traffic map
+    k_stat_type_socket_traffic = 11,
+    // not a ring buffer event: user space builds them from the socket traffic rows
+    k_stat_type_tcp_congestion_event = 12,
 };
 
 // batch size used in tcp io metric
@@ -37,7 +48,29 @@ enum tcp_fail_reason : u8 {
     reason_other = 255,
 };
 
+enum tcp_retransmit_type : u8 {
+    retransmit_type_other = 0,
+    retransmit_type_fast = 1,
+    retransmit_type_timeout = 2,
+};
+
+enum tcp_flow_control_event : u8 {
+    flow_control_event_zero_window = 1,
+};
+
+// like Datadog's tcp_event_stats: the socket entered loss (RTO) or fast recovery
+enum tcp_congestion_event : u8 {
+    congestion_event_rto = 1,
+    congestion_event_recovery = 2,
+};
+
 enum network_io_direction : u8 {
     direction_receive = 1,
     direction_transmit = 2,
+};
+
+enum tcp_reset_cause : u8 {
+    reset_cause_unknown = 0,
+    reset_cause_application = 1,
+    reset_cause_timeout = 2,
 };

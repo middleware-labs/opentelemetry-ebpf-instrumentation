@@ -6,23 +6,23 @@ package agent
 import (
 	"context"
 	"net"
-	"net/http/httptest"
+	"syscall"
 	"testing"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
-	"go.opentelemetry.io/obi/pkg/export/connector"
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/export/prom"
 	"go.opentelemetry.io/obi/pkg/internal/pipe"
+	"go.opentelemetry.io/obi/pkg/internal/procmeta"
 	"go.opentelemetry.io/obi/pkg/internal/statsolly/ebpf"
+	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -34,22 +34,20 @@ const timeout = 5 * time.Second
 func TestFilter(t *testing.T) {
 	ctx := t.Context()
 
-	registry := prometheus.NewRegistry()
-	promServer := httptest.NewServer(promhttp.HandlerFor(registry, promhttp.HandlerOpts{Registry: registry}))
-	t.Cleanup(promServer.Close)
+	promServer := testutil.NewPrometheusServer(t)
 
 	stats := Stats{
 		agentIP: net.ParseIP("1.2.3.4"),
 		ctxInfo: &global.ContextInfo{
-			Prometheus: &connector.PrometheusManager{},
+			Prometheus: promServer.Manager,
 		},
 		cfg: &obi.Config{
 			Prometheus: prom.PrometheusConfig{
-				Registry: registry,
-				Path:     "/metrics",
-				TTL:      time.Hour,
+				Port: promServer.Port,
+				Path: "/metrics",
+				TTL:  time.Hour,
 			},
-			Metrics: perapp.GlobalMetricsConfig{Features: export.FeatureStatsTCPRtt | export.FeatureStatsTCPFailedConnections | export.FeatureStatsTCPRetransmits | export.FeatureStatsTCPIo | export.FeatureStatsTCPSuccessfulConnections},
+			Metrics: perapp.GlobalMetricsConfig{Features: export.FeatureStatsTCPRtt | export.FeatureStatsTCPFailedConnections | export.FeatureStatsTCPRetransmits | export.FeatureStatsTCPIo | export.FeatureStatsTCPSuccessfulConnections | export.FeatureStatsTCPFlowControl | export.FeatureStatsTCPCongestion | export.FeatureStatsTCPClosedConnections | export.FeatureStatsDNSLookups | export.FeatureStatsSocketBytes | export.FeatureStatsSocketPackets | export.FeatureStatsTCPResets},
 			Attributes: obi.Attributes{Select: attributes.Selection{
 				attributes.StatTCPRtt.Section: attributes.InclusionLists{
 					Include: []string{"obi_ip", "dst_port", "src_port"},
@@ -60,11 +58,41 @@ func TestFilter(t *testing.T) {
 				attributes.StatTCPSuccessfulConnections.Section: attributes.InclusionLists{
 					Include: []string{"obi_ip", "dst_port", "src_port", "network_tcp_handshake_role"},
 				},
+				attributes.StatTCPClosedConnections.Section: attributes.InclusionLists{
+					Include: []string{"obi_ip", "dst_port", "src_port", "network_tcp_handshake_role"},
+				},
 				attributes.StatTCPRetransmits.Section: attributes.InclusionLists{
 					Include: []string{"obi_ip", "dst_port", "src_port"},
 				},
 				attributes.StatTCPIo.Section: attributes.InclusionLists{
 					Include: []string{"obi_ip", "dst_port", "src_port", "network_io_direction"},
+				},
+				attributes.StatTCPResets.Section: attributes.InclusionLists{
+					Include: []string{"obi_ip", "dst_port", "src_port", "network_io_direction", "network_tcp_reset_cause"},
+				},
+				attributes.StatTCPFlowControlEvents.Section: attributes.InclusionLists{
+					Include: []string{"obi_ip", "dst_port", "src_port", "network_tcp_flow_control_event", "network_tcp_handshake_role"},
+				},
+				attributes.StatTCPECNCEPackets.Section: attributes.InclusionLists{
+					Include: []string{"obi_ip", "dst_port", "src_port", "network_tcp_handshake_role"},
+				},
+				attributes.StatTCPReorderingEvents.Section: attributes.InclusionLists{
+					Include: []string{"obi_ip", "dst_port", "src_port"},
+				},
+				attributes.StatTCPOutOfOrderPackets.Section: attributes.InclusionLists{
+					Include: []string{"obi_ip", "dst_port", "src_port"},
+				},
+				attributes.StatTCPCongestionEvents.Section: attributes.InclusionLists{
+					Include: []string{"obi_ip", "dst_port", "network_tcp_congestion_event", "network_tcp_handshake_role"},
+				},
+				attributes.StatDNSLookupDuration.Section: attributes.InclusionLists{
+					Include: []string{"obi_ip", "error_type", "dns_question_name", "dns_question_type"},
+				},
+				attributes.StatSocketBytes.Section: attributes.InclusionLists{
+					Include: []string{"dst_port", "network_transport", "network_io_direction", "network_connection_role"},
+				},
+				attributes.StatSocketPackets.Section: attributes.InclusionLists{
+					Include: []string{"dst_port", "network_transport", "network_io_direction", "network_connection_role"},
 				},
 			}},
 		},
@@ -80,7 +108,25 @@ func TestFilter(t *testing.T) {
 		}
 	}
 
-	runner, err := stats.buildPipeline(ctx)
+	dnsLookups := make(chan []*ebpf.Stat, 10)
+	newDNSTracer = func(_ *Stats, out *msg.Queue[[]*ebpf.Stat]) swarm.RunFunc {
+		return func(ctx context.Context) {
+			for i := range dnsLookups {
+				out.SendCtx(ctx, i)
+			}
+		}
+	}
+
+	socketTraffic := make(chan []*ebpf.Stat, 10)
+	newSocketTrafficReader = func(_ *Stats, out *msg.Queue[[]*ebpf.Stat]) swarm.RunFunc {
+		return func(ctx context.Context) {
+			for i := range socketTraffic {
+				out.SendCtx(ctx, i)
+			}
+		}
+	}
+
+	runner, err := stats.buildPipeline(ctx, ctx)
 	require.NoError(t, err)
 
 	go runner.Start(ctx)
@@ -113,6 +159,58 @@ func TestFilter(t *testing.T) {
 		fakeIoRecord(100, 200, uint8(ebpf.CodeDirectionReceive), 2000),
 	}
 
+	ringBuf <- []*ebpf.Stat{
+		fakeResetRecord(8082, 40000, uint8(ebpf.CodeDirectionTransmit), uint8(ebpf.CodeResetCauseApplication)),
+		fakeResetRecord(40000, 8082, uint8(ebpf.CodeDirectionReceive), uint8(ebpf.CodeResetCauseUnknown)),
+	}
+
+	ringBuf <- []*ebpf.Stat{
+		fakeFlowControlRecord(300, 400, uint8(ebpf.CodeRoleClient)),
+		fakeFlowControlRecord(300, 400, uint8(ebpf.CodeRoleClient)),
+	}
+
+	// reordering never increases: its zero deltas must not create a series
+	ringBuf <- []*ebpf.Stat{
+		fakeCongestionRecord(500, 600, ebpf.TCPCongestion{DeliveredCE: 3, RcvOOOPack: 2, Role: uint8(ebpf.CodeRoleServer)}),
+		fakeCongestionRecord(500, 600, ebpf.TCPCongestion{DeliveredCE: 1, Role: uint8(ebpf.CodeRoleServer)}),
+	}
+
+	ringBuf <- []*ebpf.Stat{
+		fakeClosedConnRecord(700, 800, uint8(ebpf.CodeRoleClient)),
+		fakeClosedConnRecord(700, 800, uint8(ebpf.CodeRoleClient)),
+		fakeClosedConnRecord(800, 700, uint8(ebpf.CodeRoleServer)),
+	}
+
+	// the TCP stats read from the rows count several events, and the rolled-up RTTs are each recorded
+	rowSuccessful := fakeSuccessfulConnRecord(444, 999, uint8(ebpf.CodeRoleClient))
+	rowSuccessful.Count = 2
+	rowRetransmits := fakeRetransmitRecord(777, 888)
+	rowRetransmits.Count = 4
+	rowRtt := fakeRecord(123, 456)
+	rowRtt.TCPRtt.Merged = []uint32{200, 300}
+	socketTraffic <- []*ebpf.Stat{rowSuccessful, rowRetransmits, rowRtt}
+
+	// the congestion events are read from the rows only, one stat per kind
+	socketTraffic <- []*ebpf.Stat{
+		fakeCongestionEventRecord(900, uint8(ebpf.CodeCongestionEventRTO), 3),
+		fakeCongestionEventRecord(900, uint8(ebpf.CodeCongestionEventRecovery), 1),
+	}
+
+	// a TCP close only adds packets: its zero bytes must not create a series
+	socketTraffic <- []*ebpf.Stat{
+		fakeSocketTrafficRecord(80, ebpf.SocketTraffic{Transport: syscall.IPPROTO_TCP, Direction: uint8(ebpf.CodeDirectionTransmit), Role: uint8(ebpf.CodeRoleClient), Bytes: 76, Packets: 2}),
+		fakeSocketTrafficRecord(80, ebpf.SocketTraffic{Transport: syscall.IPPROTO_TCP, Direction: uint8(ebpf.CodeDirectionReceive), Role: uint8(ebpf.CodeRoleClient), Bytes: 853, Packets: 3}),
+		fakeSocketTrafficRecord(80, ebpf.SocketTraffic{Transport: syscall.IPPROTO_TCP, Direction: uint8(ebpf.CodeDirectionTransmit), Role: uint8(ebpf.CodeRoleClient), Packets: 1}),
+		fakeSocketTrafficRecord(53, ebpf.SocketTraffic{Transport: syscall.IPPROTO_UDP, Direction: uint8(ebpf.CodeDirectionTransmit), Role: uint8(ebpf.CodeRoleClient), Bytes: 40, Packets: 1}),
+	}
+
+	dnsLookups <- []*ebpf.Stat{
+		fakeDNSLookupRecord(&ebpf.DNSLookup{Duration: 20 * time.Millisecond, QName: "example.com", QType: 1}),
+		fakeDNSLookupRecord(&ebpf.DNSLookup{Duration: 30 * time.Millisecond, RCode: 3, QName: "nope.invalid", QType: 28}),
+		fakeDNSLookupRecord(&ebpf.DNSLookup{Duration: 30 * time.Millisecond, RCode: 3, QName: "nope.invalid", QType: 28}),
+		fakeDNSLookupRecord(&ebpf.DNSLookup{Duration: 5 * time.Second, Timeout: true, QName: "example.com", QType: 1}),
+	}
+
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		allMetrics, err := promtest.Scrape(promServer.URL)
 		require.NoError(ct, err)
@@ -124,8 +222,18 @@ func TestFilter(t *testing.T) {
 			case "obi_stat_tcp_rtt_seconds_count",
 				"obi_stat_tcp_failed_connections_total",
 				"obi_stat_tcp_successful_connections_total",
+				"obi_stat_tcp_closed_connections_total",
 				"obi_stat_tcp_retransmits_total",
 				"obi_stat_tcp_io_bytes_total",
+				"obi_stat_tcp_resets_total",
+				"obi_stat_tcp_flow_control_events_total",
+				"obi_stat_tcp_ecn_ce_packets_total",
+				"obi_stat_tcp_reordering_events_total",
+				"obi_stat_tcp_out_of_order_packets_total",
+				"obi_stat_tcp_congestion_events_total",
+				"obi_stat_dns_lookup_duration_seconds_count",
+				"obi_stat_bytes_total",
+				"obi_stat_packets_total",
 				"promhttp_metric_handler_errors_total":
 				// Reset values to 0 if you don't care about the specific count,
 				// or keep them if you want to verify the Value: 1 seen in your logs.
@@ -137,14 +245,32 @@ func TestFilter(t *testing.T) {
 			{Name: "obi_stat_tcp_rtt_seconds_count", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "1011", "src_port": "789"}},
 			{Name: "obi_stat_tcp_rtt_seconds_count", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "1415", "src_port": "1213"}},
 			{Name: "obi_stat_tcp_rtt_seconds_count", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "444", "src_port": "333"}},
-			{Name: "obi_stat_tcp_rtt_seconds_count", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "456", "src_port": "123"}},
+			{Name: "obi_stat_tcp_rtt_seconds_count", Value: 4, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "456", "src_port": "123"}},
 			{Name: "obi_stat_tcp_rtt_seconds_count", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "8080", "src_port": "3333"}},
 			{Name: "obi_stat_tcp_failed_connections_total", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "666", "src_port": "555", "reason": "refused"}},
 			{Name: "obi_stat_tcp_failed_connections_total", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "888", "src_port": "777", "reason": "timed-out"}},
-			{Name: "obi_stat_tcp_successful_connections_total", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "999", "src_port": "444", "network_tcp_handshake_role": "client"}},
-			{Name: "obi_stat_tcp_retransmits_total", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "888", "src_port": "777"}},
+			{Name: "obi_stat_tcp_successful_connections_total", Value: 3, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "999", "src_port": "444", "network_tcp_handshake_role": "client"}},
+			{Name: "obi_stat_tcp_closed_connections_total", Value: 2, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "800", "src_port": "700", "network_tcp_handshake_role": "client"}},
+			{Name: "obi_stat_tcp_closed_connections_total", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "700", "src_port": "800", "network_tcp_handshake_role": "server"}},
+			{Name: "obi_stat_tcp_retransmits_total", Value: 5, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "888", "src_port": "777"}},
 			{Name: "obi_stat_tcp_io_bytes_total", Value: 1500, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "200", "src_port": "100", "network_io_direction": "transmit"}},
 			{Name: "obi_stat_tcp_io_bytes_total", Value: 2000, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "200", "src_port": "100", "network_io_direction": "receive"}},
+			{Name: "obi_stat_tcp_resets_total", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "40000", "src_port": "8082", "network_io_direction": "transmit", "network_tcp_reset_cause": "application"}},
+			{Name: "obi_stat_tcp_resets_total", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "8082", "src_port": "40000", "network_io_direction": "receive", "network_tcp_reset_cause": ""}},
+			{Name: "obi_stat_tcp_flow_control_events_total", Value: 2, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "400", "src_port": "300", "network_tcp_flow_control_event": "zero_window", "network_tcp_handshake_role": "client"}},
+			{Name: "obi_stat_tcp_ecn_ce_packets_total", Value: 4, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "600", "src_port": "500", "network_tcp_handshake_role": "server"}},
+			{Name: "obi_stat_tcp_out_of_order_packets_total", Value: 2, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "600", "src_port": "500"}},
+			{Name: "obi_stat_tcp_congestion_events_total", Value: 3, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "900", "network_tcp_congestion_event": "rto", "network_tcp_handshake_role": "client"}},
+			{Name: "obi_stat_tcp_congestion_events_total", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "900", "network_tcp_congestion_event": "recovery", "network_tcp_handshake_role": "client"}},
+			{Name: "obi_stat_dns_lookup_duration_seconds_count", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "error_type": "", "dns_question_name": "example.com", "dns_question_type": "A"}},
+			{Name: "obi_stat_dns_lookup_duration_seconds_count", Value: 2, Labels: map[string]string{"obi_ip": "1.2.3.4", "error_type": "NXDomain", "dns_question_name": "nope.invalid", "dns_question_type": "AAAA"}},
+			{Name: "obi_stat_dns_lookup_duration_seconds_count", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "error_type": "timeout", "dns_question_name": "example.com", "dns_question_type": "A"}},
+			{Name: "obi_stat_bytes_total", Value: 76, Labels: map[string]string{"dst_port": "80", "network_transport": "tcp", "network_io_direction": "transmit", "network_connection_role": "client"}},
+			{Name: "obi_stat_bytes_total", Value: 853, Labels: map[string]string{"dst_port": "80", "network_transport": "tcp", "network_io_direction": "receive", "network_connection_role": "client"}},
+			{Name: "obi_stat_bytes_total", Value: 40, Labels: map[string]string{"dst_port": "53", "network_transport": "udp", "network_io_direction": "transmit", "network_connection_role": "client"}},
+			{Name: "obi_stat_packets_total", Value: 3, Labels: map[string]string{"dst_port": "80", "network_transport": "tcp", "network_io_direction": "transmit", "network_connection_role": "client"}},
+			{Name: "obi_stat_packets_total", Value: 3, Labels: map[string]string{"dst_port": "80", "network_transport": "tcp", "network_io_direction": "receive", "network_connection_role": "client"}},
+			{Name: "obi_stat_packets_total", Value: 1, Labels: map[string]string{"dst_port": "53", "network_transport": "udp", "network_io_direction": "transmit", "network_connection_role": "client"}},
 			{Name: "promhttp_metric_handler_errors_total", Value: 0, Labels: map[string]string{"cause": "encoding"}},
 			{Name: "promhttp_metric_handler_errors_total", Value: 0, Labels: map[string]string{"cause": "gathering"}},
 		}, filtered)
@@ -188,6 +314,19 @@ func fakeSuccessfulConnRecord(srcPort, dstPort uint16, role uint8) *ebpf.Stat {
 	}
 }
 
+func fakeClosedConnRecord(srcPort, dstPort uint16, role uint8) *ebpf.Stat {
+	return &ebpf.Stat{
+		Type: ebpf.StatTypeTCPClosedConnection,
+		TCPClosedConnection: &ebpf.TCPClosedConnection{
+			Role: role,
+		},
+		CommonAttrs: pipe.CommonAttrs{
+			SrcPort: srcPort,
+			DstPort: dstPort,
+		},
+	}
+}
+
 func fakeRetransmitRecord(srcPort, dstPort uint16) *ebpf.Stat {
 	return &ebpf.Stat{
 		TCPRetransmit: true,
@@ -202,11 +341,156 @@ func fakeIoRecord(srcPort, dstPort uint16, direction uint8, bytes uint32) *ebpf.
 	return &ebpf.Stat{
 		TCPIo: &ebpf.TCPIo{
 			Direction: direction,
-			Bytes:     bytes,
+			Bytes:     uint64(bytes),
 		},
 		CommonAttrs: pipe.CommonAttrs{
 			SrcPort: srcPort,
 			DstPort: dstPort,
 		},
 	}
+}
+
+func fakeResetRecord(srcPort, dstPort uint16, direction, cause uint8) *ebpf.Stat {
+	return &ebpf.Stat{
+		Type: ebpf.StatTypeTCPReset,
+		TCPReset: &ebpf.TCPReset{
+			Direction: direction,
+			Cause:     cause,
+		},
+		CommonAttrs: pipe.CommonAttrs{
+			SrcPort: srcPort,
+			DstPort: dstPort,
+		},
+	}
+}
+
+func fakeFlowControlRecord(srcPort, dstPort uint16, role uint8) *ebpf.Stat {
+	return &ebpf.Stat{
+		Type: ebpf.StatTypeTCPFlowControl,
+		TCPFlowControl: &ebpf.TCPFlowControl{
+			Event: uint8(ebpf.CodeFlowControlEventZeroWindow),
+			Role:  role,
+		},
+		CommonAttrs: pipe.CommonAttrs{
+			SrcPort: srcPort,
+			DstPort: dstPort,
+		},
+	}
+}
+
+func fakeCongestionEventRecord(dstPort uint16, event uint8, count uint64) *ebpf.Stat {
+	return &ebpf.Stat{
+		Type:               ebpf.StatTypeTCPCongestionEvent,
+		TCPCongestionEvent: &ebpf.TCPCongestionEvent{Event: event, Role: uint8(ebpf.CodeRoleClient)},
+		Count:              count,
+		CommonAttrs:        pipe.CommonAttrs{SrcPort: 40000, DstPort: dstPort},
+	}
+}
+
+func fakeCongestionRecord(srcPort, dstPort uint16, delta ebpf.TCPCongestion) *ebpf.Stat {
+	return &ebpf.Stat{
+		Type:          ebpf.StatTypeTCPCongestion,
+		TCPCongestion: &delta,
+		CommonAttrs: pipe.CommonAttrs{
+			SrcPort: srcPort,
+			DstPort: dstPort,
+		},
+	}
+}
+
+func fakeDNSLookupRecord(lookup *ebpf.DNSLookup) *ebpf.Stat {
+	return &ebpf.Stat{
+		Type:      ebpf.StatTypeDNSLookup,
+		DNSLookup: lookup,
+		CommonAttrs: pipe.CommonAttrs{
+			SrcPort: 40000,
+			DstPort: 53,
+		},
+	}
+}
+
+func fakeSocketTrafficRecord(dstPort uint16, traffic ebpf.SocketTraffic) *ebpf.Stat {
+	return &ebpf.Stat{
+		Type:          ebpf.StatTypeSocketTraffic,
+		SocketTraffic: &traffic,
+		CommonAttrs: pipe.CommonAttrs{
+			SrcPort: 40000,
+			DstPort: dstPort,
+		},
+	}
+}
+
+func TestProcessAttrsSelected(t *testing.T) {
+	selecting := func(features export.Features, section attributes.Section, include ...string) *obi.Config {
+		return &obi.Config{
+			Metrics:    perapp.GlobalMetricsConfig{Features: features},
+			Attributes: obi.Attributes{Select: attributes.Selection{section: attributes.InclusionLists{Include: include}}},
+		}
+	}
+	type sides struct{ src, dst bool }
+	selected := func(cfg *obi.Config, metrics func(*export.Features) []statMetric) sides {
+		src, dst := processAttrsSelected(cfg, metrics(&cfg.Metrics.Features))
+		return sides{src, dst}
+	}
+
+	cfg := selecting(export.FeatureStats, attributes.StatTCPRetransmits.Section, "src.process.executable.name")
+	assert.Equal(t, sides{src: true}, selected(cfg, tcpStatMetrics))
+	assert.Equal(t, sides{}, selected(cfg, socketTrafficMetrics))
+
+	cfg = selecting(export.FeatureStatsTCPCongestion, attributes.StatTCPReorderingEvents.Section, "dst.container.name")
+	assert.Equal(t, sides{dst: true}, selected(cfg, tcpStatMetrics))
+
+	cfg = selecting(export.FeatureStatsTCPIo, attributes.StatTCPRtt.Section, "src.container.id")
+	assert.Equal(t, sides{}, selected(cfg, tcpStatMetrics), "the metric is not enabled")
+
+	cfg = selecting(export.FeatureStatsSocketBytes, attributes.StatSocketBytes.Section, "*")
+	assert.Equal(t, sides{src: true, dst: true}, selected(cfg, socketTrafficMetrics))
+	assert.Equal(t, sides{}, selected(cfg, tcpStatMetrics))
+}
+
+func TestAttrSelected(t *testing.T) {
+	selecting := func(features export.Features, section attributes.Section, include ...string) *obi.Config {
+		return &obi.Config{
+			Metrics:    perapp.GlobalMetricsConfig{Features: features},
+			Attributes: obi.Attributes{Select: attributes.Selection{section: attributes.InclusionLists{Include: include}}},
+		}
+	}
+
+	cfg := selecting(export.FeatureStats, attributes.StatTCPIo.Section, "server.port")
+	assert.True(t, attrSelected(cfg, rowMetrics(&cfg.Metrics.Features, true), attr.ServerPort))
+	assert.False(t, attrSelected(cfg, rowMetrics(&cfg.Metrics.Features, false), attr.ServerPort),
+		"the TCP stats are events")
+
+	cfg = selecting(export.FeatureStatsSocketBytes, attributes.StatSocketBytes.Section, "server.port")
+	assert.True(t, attrSelected(cfg, rowMetrics(&cfg.Metrics.Features, false), attr.ServerPort))
+
+	cfg = selecting(export.FeatureStatsSocketBytes, attributes.StatSocketBytes.Section, "dst.port")
+	assert.False(t, attrSelected(cfg, rowMetrics(&cfg.Metrics.Features, false), attr.ServerPort))
+
+	cfg = selecting(export.FeatureStatsSocketBytes, attributes.StatSocketBytes.Section, "network.connection.role")
+	assert.True(t, attrSelected(cfg, socketTrafficMetrics(&cfg.Metrics.Features), attr.NetworkConnectionRole))
+	assert.False(t, attrSelected(cfg, socketTrafficMetrics(&cfg.Metrics.Features), attr.ServerPort))
+
+	cfg = selecting(export.FeatureStatsSocketBytes, attributes.StatSocketBytes.Section, "server.pre_nat.port")
+	assert.True(t, natSelected(cfg, false), "it needs the translations")
+
+	cfg = selecting(export.FeatureStats, attributes.StatTCPRtt.Section, "network.peer.same_host")
+	assert.True(t, sameHostSelected(cfg, true))
+	assert.False(t, sameHostSelected(cfg, false), "the TCP stats are events")
+}
+
+func TestStatProcesses(t *testing.T) {
+	tcp := &ebpf.Stat{Owner: ebpf.SockOwner{Pid: 1, ExecName: "curl", CgroupID: 2, DstPid: 3, DstExecName: "nginx", DstCgroupID: 4}}
+	src, dst := statProcesses(true, true)(tcp)
+	assert.Equal(t, uint32(1), src.Pid)
+	assert.Equal(t, "nginx", dst.ExecName)
+
+	traffic := &ebpf.Stat{SocketTraffic: &ebpf.SocketTraffic{Pid: 5, DstPid: 6}}
+	src, dst = statProcesses(false, true)(traffic)
+	assert.Zero(t, src.Pid, "the source side is not selected")
+	assert.Equal(t, uint32(6), dst.Pid)
+
+	lookup := &ebpf.Stat{Owner: ebpf.SockOwner{Pid: 1, DstContainerID: "c-coredns"}}
+	_, dst = statProcesses(true, true)(lookup)
+	assert.Equal(t, procmeta.Process{ContainerID: "c-coredns"}, dst, "a DNS server found from its container address")
 }

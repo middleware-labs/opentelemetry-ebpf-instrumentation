@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/collector/pipeline"
 
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/instrumenter"
@@ -18,7 +19,7 @@ import (
 )
 
 // sharedController manages an OBI instance that can be shared between
-// traces and metrics receivers with the same component ID.
+// traces, metrics, and logs receivers with the same component ID.
 type sharedController struct {
 	mu      sync.Mutex
 	config  *obi.Config
@@ -29,17 +30,23 @@ type sharedController struct {
 	runDone chan struct{}
 }
 
-// Controller represents an individual receiver (traces or metrics) that
+// Controller represents an individual receiver (traces, metrics, or logs) that
 // shares the underlying OBI instance with other receivers of the same component ID.
 type Controller struct {
 	id     component.ID
 	shared *sharedController
+	// started reports whether this receiver holds a reference on shared.refCnt.
+	// Guarded by shared.mu.
+	started bool
 }
+
+// runOBI is a variable so tests can replace the OBI run loop.
+var runOBI = instrumenter.RunWithProtocolMetricSelection
 
 var (
 	// sharedControllers holds shared controller instances keyed by component ID.
 	// This allows multiple OBI receivers (e.g., obi/instance1, obi/instance2) to run
-	// independently, while traces and metrics receivers with the same ID share one instance.
+	// independently, while traces, metrics, and logs receivers with the same ID share one instance.
 	sharedControllers   = make(map[component.ID]*sharedController)
 	sharedControllersMu sync.Mutex
 )
@@ -47,7 +54,7 @@ var (
 // NewController creates a new Controller for the given component ID and config.
 // Receivers with the same component ID share the same underlying OBI instance.
 // Receivers with different component IDs get separate OBI instances.
-func NewController(id component.ID, cfg *obi.Config, v2 bool) (*Controller, error) {
+func NewController(id component.ID, cfg *obi.Config, v2 bool, signal pipeline.Signal) (*Controller, error) {
 	sharedControllersMu.Lock()
 	defer sharedControllersMu.Unlock()
 
@@ -60,13 +67,15 @@ func NewController(id component.ID, cfg *obi.Config, v2 bool) (*Controller, erro
 		}
 		sharedControllers[id] = shared
 	} else {
-		// Update config with any new consumers
-		// The traces or metrics consumer might be set by different receivers
-		if cfg.Traces.TracesConsumer != nil {
-			shared.config.Traces.TracesConsumer = cfg.Traces.TracesConsumer
-		}
-		if cfg.OTELMetrics.MetricsConsumer != nil {
-			shared.config.OTELMetrics.MetricsConsumer = cfg.OTELMetrics.MetricsConsumer
+		// Merge only the registering signal. Other callbacks may be validation
+		// placeholders and must not overwrite an existing consumer.
+		switch signal {
+		case pipeline.SignalTraces:
+			shared.config.Traces.TracesExport = cfg.Traces.TracesExport
+		case pipeline.SignalMetrics:
+			shared.config.OTELMetrics.MetricsExport = cfg.OTELMetrics.MetricsExport
+		case pipeline.SignalLogs:
+			shared.config.Logs.LogsExport = cfg.Logs.LogsExport
 		}
 	}
 
@@ -98,19 +107,27 @@ func (c *Controller) Start(ctx context.Context, _ component.Host) error {
 	c.shared.mu.Lock()
 	defer c.shared.mu.Unlock()
 
+	// Checked under the lock: the context can be canceled while waiting for it.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	c.shared.refCnt++
+	c.started = true
 
 	if c.shared.refCnt > 1 {
 		// Already running, just increased ref count
 		return nil
 	}
 
-	// First caller - start OBI
-	runCtx, cancel := context.WithCancel(ctx)
+	// First caller - start OBI. The Start context only covers startup, so OBI
+	// runs on its own context, which Shutdown cancels.
+	runCtx, cancel := context.WithCancel(context.Background())
 	ctxInfo, err := instrumenter.BuildCommonContextInfo(runCtx, c.shared.config)
 	if err != nil {
 		cancel()
 		c.shared.refCnt-- // rollback on failure
+		c.started = false
 		slog.Error("building common context info for OBI", "error", err, "id", c.id)
 		return err
 	}
@@ -126,21 +143,26 @@ func (c *Controller) Start(ctx context.Context, _ component.Host) error {
 			selection := instrumentations.NewInstrumentationSelection(c.shared.config.OTELMetrics.Instrumentations)
 			policy = &selection
 		}
-		c.shared.runErr = instrumenter.RunWithProtocolMetricSelection(runCtx, c.shared.config, ctxInfo, policy)
+		c.shared.runErr = runOBI(runCtx, c.shared.config, ctxInfo, policy)
 	}()
 
 	return nil
 }
 
 // Shutdown stops the receiver. Only the last shutdown call actually stops OBI.
+// A receiver that never acquired a reference leaves the shared instance alone.
 func (c *Controller) Shutdown(ctx context.Context) error {
 	c.shared.mu.Lock()
-	if c.shared.refCnt == 0 {
+	if !c.started {
+		active := c.shared.refCnt > 0
 		c.shared.mu.Unlock()
-		c.cleanupSharedController()
+		if !active {
+			c.cleanupSharedController()
+		}
 		return nil
 	}
 
+	c.started = false
 	c.shared.refCnt--
 
 	if c.shared.refCnt > 0 {

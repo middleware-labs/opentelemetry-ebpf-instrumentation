@@ -12,10 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"go.opentelemetry.io/collector/consumer"
-
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
+	"go.opentelemetry.io/obi/pkg/export/otel/metric/components/exemplar"
 )
 
 // HistogramAggregation defines the histogram aggregation type for metrics export.
@@ -42,9 +41,8 @@ func mlog() *slog.Logger {
 }
 
 type MetricsConfig struct {
-	// MetricsConsumer is the collector consumer to send metrics to.
-	// When set, metrics will be sent directly to this consumer instead of via HTTP/gRPC.
-	MetricsConsumer consumer.Metrics `yaml:"-"`
+	// MetricsExport sends metrics to a consumer in the same process.
+	MetricsExport MetricsExportFunc `yaml:"-"`
 
 	Interval time.Duration `yaml:"interval" env:"OTEL_EBPF_METRICS_INTERVAL"`
 	// OTELIntervalMS supports metric intervals as specified by the standard OTEL definition.
@@ -84,6 +82,10 @@ type MetricsConfig struct {
 	// removed from the metrics set.
 	TTL time.Duration `yaml:"ttl" env:"OTEL_EBPF_METRICS_TTL"`
 
+	// ConnectionInfoTTL specifies how long observed connection-info edges remain active.
+	// It is set by Config v2 and is not part of the frozen Config v1 surface.
+	ConnectionInfoTTL time.Duration `yaml:"-" env:"-" validate:"gt=0"`
+
 	AllowServiceGraphSelfReferences bool `yaml:"allow_service_graph_self_references" env:"OTEL_EBPF_ALLOW_SERVICE_GRAPH_SELF_REFERENCES"`
 
 	// OTLPEndpointProvider allows overriding the OTLP Endpoint. It needs to return an endpoint and
@@ -97,6 +99,24 @@ type MetricsConfig struct {
 	// beforehand. For example, to add the OTEL deployment.environment resource attribute as a OTEL resource attribute,
 	// you should add `deployment.environment`.
 	ExtraSpanResourceLabels []string `yaml:"extra_span_resource_attributes" env:"OTEL_EBPF_EXTRA_SPAN_RESOURCE_ATTRIBUTES" envSeparator:","`
+
+	// ExemplarFilter is set from Config v2 meter_provider.exemplar_filter. When empty, the
+	// OTEL_METRICS_EXEMPLAR_FILTER environment variable applies.
+	ExemplarFilter string `yaml:"-" env:"-"`
+}
+
+// GetExemplarFilter returns the configured exemplar filter, or nil when none is configured.
+func (m *MetricsConfig) GetExemplarFilter() exemplar.Filter {
+	switch m.ExemplarFilter {
+	case "always_on":
+		return exemplar.AlwaysOnFilter
+	case "always_off":
+		return exemplar.AlwaysOffFilter
+	case "trace_based":
+		return exemplar.SampledFilter
+	default:
+		return nil
+	}
 }
 
 func (m MetricsConfig) MarshalYAML() (any, error) {
@@ -108,7 +128,7 @@ func (m MetricsConfig) MarshalYAML() (any, error) {
 
 func (m *MetricsConfig) GetProtocol() Protocol {
 	// When using a consumer, protocol is not needed
-	if m.MetricsConsumer != nil {
+	if m.MetricsExport != nil {
 		return ProtocolUnset
 	}
 	if m.MetricsProtocol != "" {
@@ -151,12 +171,12 @@ func (m *MetricsConfig) OTLPMetricsEndpoint() (string, bool) {
 }
 
 // EndpointEnabled specifies that the OTEL metrics node is enabled if and only if
-// either the OTEL endpoint, OTEL metrics endpoint, or a MetricsConsumer is defined.
+// either the OTEL endpoint, OTEL metrics endpoint, or a MetricsExport callback is defined.
 // If not enabled, this node won't be instantiated
 // Reason to disable linting: it requires to be a value despite it is considered a "heavy struct".
 // This method is invoked only once during startup time so it doesn't have a noticeable performance impact.
 func (m *MetricsConfig) EndpointEnabled() bool {
-	if m.MetricsConsumer != nil {
+	if m.MetricsExport != nil {
 		return true
 	}
 	ep, _ := m.OTLPMetricsEndpoint()

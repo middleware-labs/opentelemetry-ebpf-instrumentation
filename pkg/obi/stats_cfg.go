@@ -6,6 +6,7 @@ package obi // import "go.opentelemetry.io/obi/pkg/obi"
 import (
 	"time"
 
+	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/internal/pipe/cidr"
 	"go.opentelemetry.io/obi/pkg/internal/pipe/geoip"
 	"go.opentelemetry.io/obi/pkg/internal/pipe/rdns"
@@ -47,6 +48,10 @@ type StatsConfig struct {
 	Print bool `yaml:"print_stats" env:"OTEL_EBPF_STATS_PRINT_STATS" validate:"boolean"`
 
 	GeoIP geoip.GeoIP `yaml:"geo_ip"`
+
+	// SocketTraffic configures the obi.stat.bytes and obi.stat.packets metrics
+	// (stats_socket_bytes and stats_socket_packets features)
+	SocketTraffic config.SocketTrafficConfig `yaml:"socket_traffic"`
 }
 
 var DefaultStatsConfig = StatsConfig{
@@ -60,5 +65,10 @@ var DefaultStatsConfig = StatsConfig{
 	GeoIP: geoip.GeoIP{
 		CacheLen: 512,
 		CacheTTL: time.Hour,
+	},
+	SocketTraffic: config.SocketTrafficConfig{
+		Protocols:    []string{config.SocketTrafficTCP, config.SocketTrafficUDP},
+		ReadInterval: 10 * time.Second,
+		MaxEntries:   1 << 16,
 	},
 }

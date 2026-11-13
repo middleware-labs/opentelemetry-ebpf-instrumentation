@@ -32,6 +32,7 @@ const internalMetricsMeterName = "obi_internal"
 // InternalMetricsReporter is an internal metrics Reporter that exports to OTEL
 type InternalMetricsReporter struct {
 	ctx                              context.Context
+	provider                         *metric.MeterProvider
 	tracerFlushes                    instrument.Float64Histogram
 	otelMetricExports                instrument.Float64Counter
 	otelMetricExportErrs             instrument.Float64Counter
@@ -57,6 +58,20 @@ type InternalMetricsReporter struct {
 
 	queueCapacityRatio instrument.Float64Gauge
 
+	// used for calculating deltas from an absolute value
+	totalStatsDNSDroppedQuestions     uint64
+	totalStatsDNSServerKeyMerges      uint64
+	statsDNSDroppedQuestions          instrument.Int64Counter
+	statsDNSServerKeyMerges           instrument.Int64Counter
+	statsDNSReaderLag                 instrument.Float64Gauge
+	totalStatsSocketTrafficDrops      uint64
+	totalStatsSocketTrafficCloseDrops uint64
+	totalStatsSocketTrafficUnderflows uint64
+	statsSocketTrafficDrops           instrument.Int64Counter
+	statsSocketTrafficCloseDrops      instrument.Int64Counter
+	statsSocketTrafficUnderflows      instrument.Int64Counter
+	statsSocketTrafficRows            instrument.Int64Gauge
+
 	internalAttrs attr.InternalAttributes
 }
 
@@ -64,7 +79,7 @@ func imlog() *slog.Logger {
 	return slog.With("component", "otel.InternalMetricsReporter")
 }
 
-func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo, metrics *otelcfg.MetricsConfig, internalMetrics *imetrics.InternalMetricsConfig) (*InternalMetricsReporter, error) {
+func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo, metrics *otelcfg.MetricsConfig, internalMetrics *imetrics.InternalMetricsConfig) (_ *InternalMetricsReporter, retErr error) {
 	log := imlog()
 	log.Debug("instantiating internal metrics exporter provider")
 	exporter, err := ctxInfo.OTELMetricsExporter.Instantiate(ctx)
@@ -72,6 +87,7 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 		log.Error("can't instantiate metrics exporter", "error", err)
 		return nil, err
 	}
+	defer releaseExporterOnError(ctx, exporter, &retErr)
 
 	internalNames := attributes.NewInternalMetrics(attr.VendorPrefix)
 	internalAttrs := attr.NewInternalAttributes(attr.VendorPrefix)
@@ -82,7 +98,10 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 		exporter.Temporality(metric.InstrumentKindHistogram),
 	)
 	provider := newInternalMeterProvider(res, &exporter, metrics.Interval, bpfProbeLatency)
-	meter := provider.Meter(internalMetricsMeterName)
+	meter := provider.Meter(internalMetricsMeterName,
+		instrument.WithInstrumentationVersion(attr.TelemetryDistroVersion()),
+		instrument.WithSchemaURL(attr.OBISchemaURL),
+	)
 	tracerFlushes, err := meter.Float64Histogram(
 		internalNames.TracerFlushes.OTEL,
 		instrument.WithDescription("Length of the groups of traces flushed from the eBPF tracer to the next pipeline stage"),
@@ -231,8 +250,72 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 	if err != nil {
 		return nil, err
 	}
+	statsDNSDroppedQuestions, err := meter.Int64Counter(
+		internalNames.StatsDNSDroppedQuestions.OTEL,
+		instrument.WithDescription("DNS questions of the stats DNS lookups dropped because too many questions were waiting for an answer"),
+		instrument.WithUnit(internalNames.StatsDNSDroppedQuestions.Unit),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	statsDNSServerKeyMerges, err := meter.Int64Counter(
+		internalNames.StatsDNSServerKeyMerges.OTEL,
+		instrument.WithDescription("DNS question copies of the stats DNS lookups matched only by their server address, DNS ID and question"),
+		instrument.WithUnit(internalNames.StatsDNSServerKeyMerges.Unit),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	statsDNSReaderLag, err := meter.Float64Gauge(
+		internalNames.StatsDNSReaderLag.OTEL,
+		instrument.WithDescription("How far behind the kernel, in seconds, the DNS packets of the stats DNS lookups are read"),
+		instrument.WithUnit(internalNames.StatsDNSReaderLag.Unit),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	statsSocketTrafficDrops, err := meter.Int64Counter(
+		internalNames.StatsSocketTrafficDrops.OTEL,
+		instrument.WithDescription("Socket traffic updates not counted because the socket traffic kernel map was full"),
+		instrument.WithUnit(internalNames.StatsSocketTrafficDrops.Unit),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	statsSocketTrafficCloseDrops, err := meter.Int64Counter(
+		internalNames.StatsSocketTrafficCloseDrops.OTEL,
+		instrument.WithDescription("Socket traffic close events lost because their ring buffer was full"),
+		instrument.WithUnit(internalNames.StatsSocketTrafficCloseDrops.Unit),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	statsSocketTrafficUnderflows, err := meter.Int64Counter(
+		internalNames.StatsSocketTrafficUnderflows.OTEL,
+		instrument.WithDescription("Socket traffic totals that went down, because a socket was replaced by another one with the same addresses"),
+		instrument.WithUnit(internalNames.StatsSocketTrafficUnderflows.Unit),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	statsSocketTrafficRows, err := meter.Int64Gauge(
+		internalNames.StatsSocketTrafficRows.OTEL,
+		instrument.WithDescription("Rows in the socket traffic kernel map"),
+		instrument.WithUnit(internalNames.StatsSocketTrafficRows.Unit),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &InternalMetricsReporter{
 		ctx:                              ctx,
+		provider:                         provider,
 		tracerFlushes:                    tracerFlushes,
 		otelMetricExports:                otelMetricExports,
 		otelMetricExportErrs:             otelMetricExportErrs,
@@ -253,6 +336,13 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 		bpfRingbufWrites:                 bpfRingbufWrites,
 		bpfRingbufFailures:               bpfRingbufFailures,
 		queueCapacityRatio:               queueCapacityRatio,
+		statsDNSDroppedQuestions:         statsDNSDroppedQuestions,
+		statsDNSServerKeyMerges:          statsDNSServerKeyMerges,
+		statsDNSReaderLag:                statsDNSReaderLag,
+		statsSocketTrafficDrops:          statsSocketTrafficDrops,
+		statsSocketTrafficCloseDrops:     statsSocketTrafficCloseDrops,
+		statsSocketTrafficUnderflows:     statsSocketTrafficUnderflows,
+		statsSocketTrafficRows:           statsSocketTrafficRows,
 		internalAttrs:                    internalAttrs,
 	}, nil
 }
@@ -292,6 +382,10 @@ func (p *InternalMetricsReporter) Start(ctx context.Context) {
 		attribute.String(string(p.internalAttrs.Version), buildinfo.Version),
 		attribute.String(string(p.internalAttrs.Revision), buildinfo.Revision),
 	))
+}
+
+func (p *InternalMetricsReporter) Shutdown(ctx context.Context) error {
+	return p.provider.Shutdown(ctx)
 }
 
 func (p *InternalMetricsReporter) TracerFlush(length int) {
@@ -421,6 +515,30 @@ func (p *InternalMetricsReporter) BPFRingbufWriteCounts(ringbuf string, writes, 
 	attrs := sanitizedAttributes(attribute.String(string(attr.BpfMapName), ringbuf))
 	p.bpfRingbufWrites.Add(p.ctx, int64(writes), attrs)
 	p.bpfRingbufFailures.Add(p.ctx, int64(failures), attrs)
+}
+
+func (p *InternalMetricsReporter) StatsDNSCounters(droppedQuestions, serverKeyMerges uint64) {
+	p.statsDNSDroppedQuestions.Add(p.ctx, int64(droppedQuestions-p.totalStatsDNSDroppedQuestions))
+	p.statsDNSServerKeyMerges.Add(p.ctx, int64(serverKeyMerges-p.totalStatsDNSServerKeyMerges))
+	p.totalStatsDNSDroppedQuestions = droppedQuestions
+	p.totalStatsDNSServerKeyMerges = serverKeyMerges
+}
+
+func (p *InternalMetricsReporter) StatsDNSReaderLag(seconds float64) {
+	p.statsDNSReaderLag.Record(p.ctx, seconds)
+}
+
+func (p *InternalMetricsReporter) StatsSocketTrafficCounters(insertDrops, closeDrops, underflows uint64) {
+	p.statsSocketTrafficDrops.Add(p.ctx, int64(insertDrops-p.totalStatsSocketTrafficDrops))
+	p.statsSocketTrafficCloseDrops.Add(p.ctx, int64(closeDrops-p.totalStatsSocketTrafficCloseDrops))
+	p.statsSocketTrafficUnderflows.Add(p.ctx, int64(underflows-p.totalStatsSocketTrafficUnderflows))
+	p.totalStatsSocketTrafficDrops = insertDrops
+	p.totalStatsSocketTrafficCloseDrops = closeDrops
+	p.totalStatsSocketTrafficUnderflows = underflows
+}
+
+func (p *InternalMetricsReporter) StatsSocketTrafficRows(rows int) {
+	p.statsSocketTrafficRows.Record(p.ctx, int64(rows))
 }
 
 func (p *InternalMetricsReporter) QueueBufferUtilization(subscriber string, ratio float64) {

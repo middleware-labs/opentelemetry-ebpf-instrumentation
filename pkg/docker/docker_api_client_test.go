@@ -30,6 +30,8 @@ import (
 type mockDockerClient struct {
 	inspectResult  client.ContainerInspectResult
 	inspectErr     error
+	listResult     client.ContainerListResult
+	listErr        error
 	eventsChan     chan events.Message
 	errsChan       chan error
 	inspectCallsMu sync.Mutex
@@ -43,6 +45,10 @@ func (m *mockDockerClient) ContainerInspect(_ context.Context, _ string, _ clien
 	m.inspectCalls++
 	m.inspectCallsMu.Unlock()
 	return m.inspectResult, m.inspectErr
+}
+
+func (m *mockDockerClient) ContainerList(_ context.Context, _ client.ContainerListOptions) (client.ContainerListResult, error) {
+	return m.listResult, m.listErr
 }
 
 func (m *mockDockerClient) Events(_ context.Context, opts client.EventsListOptions) client.EventsResult {

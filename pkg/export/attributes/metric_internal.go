@@ -15,24 +15,31 @@ package attributes // import "go.opentelemetry.io/obi/pkg/export/attributes"
 // Unlike the metrics in metric.go these are not user-selectable, so they carry no Section:
 // nothing refers to them from an attributes.select group.
 type InternalMetrics struct {
-	TracerFlushes            Name
-	OTELMetricExports        Name
-	OTELMetricExportErrors   Name
-	OTELTraceExports         Name
-	OTELTraceExportErrors    Name
-	InstrumentedProcesses    Name
-	InstrumentationErrors    Name
-	AvoidedServices          Name
-	BuildInfo                Name
-	BpfProbeLatency          Name
-	BpfMapEntries            Name
-	BpfMapMaxEntries         Name
-	KubeCacheForwardLag      Name
-	BpfNetworkIgnoredPackets Name
-	BpfNetworkPackets        Name
-	BpfRingbufWrites         Name
-	BpfRingbufWriteFailures  Name
-	QueueCapacityRatio       Name
+	TracerFlushes                Name
+	OTELMetricExports            Name
+	OTELMetricExportErrors       Name
+	OTELTraceExports             Name
+	OTELTraceExportErrors        Name
+	InstrumentedProcesses        Name
+	InstrumentationErrors        Name
+	AvoidedServices              Name
+	BuildInfo                    Name
+	BpfProbeLatency              Name
+	BpfMapEntries                Name
+	BpfMapMaxEntries             Name
+	KubeCacheForwardLag          Name
+	BpfNetworkIgnoredPackets     Name
+	BpfNetworkPackets            Name
+	BpfRingbufWrites             Name
+	BpfRingbufWriteFailures      Name
+	QueueCapacityRatio           Name
+	StatsDNSDroppedQuestions     Name
+	StatsDNSServerKeyMerges      Name
+	StatsDNSReaderLag            Name
+	StatsSocketTrafficDrops      Name
+	StatsSocketTrafficCloseDrops Name
+	StatsSocketTrafficUnderflows Name
+	StatsSocketTrafficRows       Name
 }
 
 func NewInternalMetrics(prefix string) InternalMetrics {
@@ -115,6 +122,41 @@ func NewInternalMetrics(prefix string) InternalMetrics {
 		QueueCapacityRatio: metric(Name{
 			OTEL: prefix + ".queue.capacity.ratio",
 			Unit: "1",
+			Type: InstrumentGauge,
+		}),
+		StatsDNSDroppedQuestions: metric(Name{
+			OTEL: prefix + ".stats.dns.dropped.questions",
+			Unit: "{question}",
+			Type: InstrumentCounter,
+		}),
+		StatsDNSServerKeyMerges: metric(Name{
+			OTEL: prefix + ".stats.dns.server_key.merges",
+			Unit: "{question}",
+			Type: InstrumentCounter,
+		}),
+		StatsDNSReaderLag: metric(Name{
+			OTEL: prefix + ".stats.dns.reader.lag",
+			Unit: "s",
+			Type: InstrumentGauge,
+		}),
+		StatsSocketTrafficDrops: metric(Name{
+			OTEL: prefix + ".stats.socket_traffic.drops",
+			Unit: "{update}",
+			Type: InstrumentCounter,
+		}),
+		StatsSocketTrafficCloseDrops: metric(Name{
+			OTEL: prefix + ".stats.socket_traffic.close_drops",
+			Unit: "{event}",
+			Type: InstrumentCounter,
+		}),
+		StatsSocketTrafficUnderflows: metric(Name{
+			OTEL: prefix + ".stats.socket_traffic.underflows",
+			Unit: "{update}",
+			Type: InstrumentCounter,
+		}),
+		StatsSocketTrafficRows: metric(Name{
+			OTEL: prefix + ".stats.socket_traffic.rows",
+			Unit: "{row}",
 			Type: InstrumentGauge,
 		}),
 	}

@@ -108,6 +108,18 @@ type Reporter interface {
 	// QueueBufferUtilization shows the ratio [0-1] between the unread messages of an internal Go channel
 	// and its total capacity
 	QueueBufferUtilization(subscriber string, ratio float64)
+	// StatsDNSCounters sets the absolute counts of the stats DNS lookups: questions dropped because
+	// too many were waiting for an answer, and question copies matched only by their server key
+	// (SNAT, or two clients merged by mistake)
+	StatsDNSCounters(droppedQuestions, serverKeyMerges uint64)
+	// StatsDNSReaderLag shows how far behind the kernel, in seconds, the stats DNS packets are read
+	StatsDNSReaderLag(seconds float64)
+	// StatsSocketTrafficCounters sets the absolute counts of the socket traffic metrics: updates
+	// not counted because the kernel map was full, close events lost because their ring buffer
+	// was full, and totals that went down (a socket replaced by another with the same addresses)
+	StatsSocketTrafficCounters(insertDrops, closeDrops, underflows uint64)
+	// StatsSocketTrafficRows shows the number of rows in the socket traffic kernel map
+	StatsSocketTrafficRows(rows int)
 }
 
 func IsBuiltinNoopReporter(reporter Reporter) bool {
@@ -146,3 +158,7 @@ func (n NoopReporter) InformerLag(_ float64)                                    
 func (n NoopReporter) BPFPacketStats(_, _ uint64)                                              {}
 func (n NoopReporter) BPFRingbufWriteCounts(_ string, _, _ uint64)                             {}
 func (n NoopReporter) QueueBufferUtilization(_ string, _ float64)                              {}
+func (n NoopReporter) StatsDNSCounters(_, _ uint64)                                            {}
+func (n NoopReporter) StatsDNSReaderLag(_ float64)                                             {}
+func (n NoopReporter) StatsSocketTrafficCounters(_, _, _ uint64)                               {}
+func (n NoopReporter) StatsSocketTrafficRows(_ int)                                            {}

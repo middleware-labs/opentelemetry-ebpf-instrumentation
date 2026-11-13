@@ -128,6 +128,14 @@ Attributes carried on OBI's network-flow metrics. Emitted when the `network`, `n
 | `src.zone` | string | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
 | `transport` | string | development | Transport protocol of the flow (e.g. TCP, UDP). | TCP |
 
+## `registry.obi.openai`
+
+OpenAI request content attributes defined by OBI.
+
+| Attribute | Type | Stability | Description | Examples |
+| --- | --- | --- | --- | --- |
+| `openai.request.questions` | string | development | The questions submitted to the OpenAI Decisions API, JSON-encoded in request order. | [{"type":"predicate","name":"damaged","instructions":"Does the customer report a damaged item?"}] |
+
 ## `registry.obi.rpc`
 
 RPC attributes OBI emits that are not part of upstream semconv.
@@ -138,7 +146,7 @@ RPC attributes OBI emits that are not part of upstream semconv.
 
 ## `registry.obi.service_graph`
 
-Attributes used by OBI's service-graph emission. The metric names and label set match the output of the OTel collector-contrib `servicegraphconnector` so the same dashboards consume both OBI-emitted and connector-emitted data. Emitted when OBI's `application_service_graph` metrics feature is enabled. The OBI-specific `source` attribute is declared in `obi_internal/registry.yaml`. See: https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/connector/servicegraphconnector
+Attributes used by OBI's service-graph and connection-info emissions. The metric names and label set match the output of the OTel collector-contrib `servicegraphconnector` so the same dashboards consume both OBI-emitted and connector-emitted data. Emitted when OBI's `application_service_graph` or `application_service_graph_connection_info` metrics feature is enabled. The OBI-specific `source` attribute is declared in `obi_internal/registry.yaml`. See: https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/connector/servicegraphconnector
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
@@ -165,20 +173,24 @@ Attributes used by OBI's span-metrics emission. The metric names match the outpu
 
 ## `registry.obi.stats`
 
-Attributes carried on OBI's per-connection TCP statistics. Emitted when the `stats_tcp_rtt`, `stats_tcp_failed_connections` or `stats_tcp_successful_connections` features are enabled (all rolled into the umbrella `stats` feature). Like network-flow metrics, the per-data-point attribute set is configurable via `attributes.select`.
+Attributes carried on OBI's per-connection TCP statistics. Emitted when the `stats_tcp_rtt`, `stats_tcp_failed_connections` or `stats_tcp_successful_connections` features (all rolled into the umbrella `stats` feature), or the `stats_tcp_closed_connections`, `stats_tcp_flow_control`, `stats_tcp_congestion` or `stats_dns_lookups` features are enabled. The closed connection, flow control and congestion metrics are read from the socket traffic rows only: they need `stats.socket_traffic.tcp_metrics`. Like network-flow metrics, the per-data-point attribute set is configurable via `attributes.select`.
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
+| `dns.question.type` | string | development | DNS record type of the question, as its name (`A`, `AAAA`, `SRV`...), or as its number for the types without a name in OBI. | A; AAAA; SRV |
+| `network.tcp.flow_control.event` | enum | development | Kind of TCP flow-control event. `zero_window` is a zero-window probe sent while the peer advertises a zero receive window. | zero_window; unknown |
 | `network.tcp.handshake.role` | enum | development | Role of the local endpoint in the TCP three-way handshake (`client` initiated the SYN, `server` was awaiting it). | client; server; unknown |
+| `network.tcp.reset.cause` | enum | development | Inferred cause of a TCP reset sent by the local endpoint, from the code path that sent it: `application` when the socket was closed before the reset (close() with unread data, SO_LINGER{0}), `timeout` when the reset was sent with the connection still open, by a keepalive, user-timeout or orphan timer, or by a forced socket destroy such as `ss -K`. Not set when the cause cannot be inferred: received resets, and sent resets that answer an incoming segment. | application; timeout |
+| `network.tcp.retransmit.type` | enum | development | Cause of a TCP retransmission: `timeout` when the retransmission timer expired, `fast` during fast recovery (duplicate ACKs or SACK), `other` for anything else (e.g. SYN retransmits, and the tail loss probes: the socket traffic rows add them when the connection closes). | timeout; fast; other |
 | `reason` | enum | development | Classification of why a TCP connection failed. | refused; reset; timed-out; host-unreachable; net-unreachable; other; unknown |
 
-## `registry.obi.traces_resource`
+## `registry.obi.traces`
 
-Resource attributes OBI's trace exporter sets on the exported `ResourceSpans` in addition to the service and infrastructure attributes shared with the metrics pipeline.
+Attributes carried on OBI request phase spans.
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `otel.scope.name` | string | stable | The name of the instrumentation scope - (`InstrumentationScope.Name` in OTLP). | io.opentelemetry.contrib.mongodb |
+| `obi.request.phase` | enum | development | Phase of a request represented by an OBI child span. | queue; processing |
 
 ## `x.obi.db`
 
@@ -223,11 +235,11 @@ OBI override of `network.type` extending the upstream enum with `arp` for the AR
 
 ## `x.obi.openai`
 
-OBI override of `openai.api.type` extending the upstream enum with the embeddings and legacy text-completions APIs, which OBI detects but upstream semconv has no members for.
+OBI override of `openai.api.type` extending the upstream enum with the Decisions, embeddings and legacy text-completions APIs, which OBI detects but upstream semconv has no members for.
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `openai.api.type` | enum | development | The type of OpenAI API being used. | chat_completions; responses; embeddings; text_completions |
+| `openai.api.type` | enum | development | The type of OpenAI API being used. | chat_completions; responses; decisions; embeddings; text_completions |
 
 ## `x.obi.rpc`
 

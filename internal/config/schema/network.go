@@ -36,6 +36,7 @@ func (s *NetworkSource) UnmarshalYAML(value *yaml.Node) error {
 // NetworkCapture describes network flow capture settings.
 type NetworkCapture struct {
 	Enabled              bool               `yaml:"enabled"`
+	Features             []string           `yaml:"features"`
 	Source               NetworkSource      `yaml:"source"`
 	BufferSize           uint32             `yaml:"buffer_size"`
 	EndpointIdentity     EndpointIdentity   `yaml:"endpoint_identity"`
@@ -286,14 +287,26 @@ type FlowDiagnostics struct {
 
 // NetworkStats describes network statistics capture settings.
 type NetworkStats struct {
-	Enabled              bool              `yaml:"enabled"`
-	Features             []string          `yaml:"features"`
-	EndpointIdentity     EndpointIdentity  `yaml:"endpoint_identity"`
-	Selection            StatsSelection    `yaml:"selection"`
-	Filters              SignalFilters     `yaml:"filters"`
-	Enrichment           NetworkEnrichment `yaml:"enrichment"`
-	Diagnostics          StatsDiagnostics  `yaml:"diagnostics"`
-	AdditionalProperties map[string]any    `yaml:",inline"`
+	Enabled              bool               `yaml:"enabled"`
+	Features             []string           `yaml:"features"`
+	EndpointIdentity     EndpointIdentity   `yaml:"endpoint_identity"`
+	Selection            StatsSelection     `yaml:"selection"`
+	Filters              SignalFilters      `yaml:"filters"`
+	Enrichment           NetworkEnrichment  `yaml:"enrichment"`
+	SocketTraffic        StatsSocketTraffic `yaml:"socket_traffic"`
+	Diagnostics          StatsDiagnostics   `yaml:"diagnostics"`
+	AdditionalProperties map[string]any     `yaml:",inline"`
+}
+
+// StatsSocketTraffic describes the capture of the socket_bytes and socket_packets stats families.
+type StatsSocketTraffic struct {
+	Protocols    []string `yaml:"protocols"`
+	ReadInterval Duration `yaml:"read_interval"`
+	MaxEntries   uint32   `yaml:"max_entries"`
+	// ConnectionRollup merges the closed connections that only differ by the client port.
+	ConnectionRollup bool `yaml:"connection_rollup"`
+	// TCPMetrics reads the TCP stat metrics from the TCP rows instead of one event per TCP event.
+	TCPMetrics bool `yaml:"tcp_metrics"`
 }
 
 // StatsSelection describes which network statistics traffic is selected.

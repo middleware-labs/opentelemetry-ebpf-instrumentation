@@ -154,6 +154,8 @@ var OBIIP = Name("obi.ip")
 // otherwise.
 var OBIHTTPResponseObserved = Name("obi.http.response.observed")
 
+var OBIRequestPhase = Name("obi.request.phase")
+
 const (
 	Transport       = Name("transport")
 	NetworkType     = Name(semconv.NetworkTypeKey)
@@ -330,6 +332,7 @@ const (
 	GenAIToolCallResult    = Name(semconv.GenAIToolCallResultKey)
 	GenAIPromptName        = Name(semconv.GenAIPromptNameKey)
 	GenAIResponseError     = Name("gen_ai.response.error")
+	OpenAIRequestQuestions = Name("openai.request.questions")
 )
 
 // OBI specific GPU events
@@ -370,6 +373,8 @@ const (
 // DNS events
 const (
 	DNSQuestionName = Name(semconv.DNSQuestionNameKey)
+	// DNSQuestionType has no semantic convention yet. Values are the DNS record type names (A, AAAA, SRV...)
+	DNSQuestionType = Name("dns.question.type")
 )
 
 // GenAI events
@@ -390,7 +395,40 @@ const (
 
 // Stat metrics
 const (
-	TCPFailedConnectionReason = Name("reason")
-	NetworkTCPHandshakeRole   = Name("network.tcp.handshake.role")
-	NetworkIoDirection        = Name(semconv.NetworkIODirectionKey)
+	TCPFailedConnectionReason  = Name("reason")
+	NetworkTCPHandshakeRole    = Name("network.tcp.handshake.role")
+	NetworkTCPRetransmitType   = Name("network.tcp.retransmit.type")
+	NetworkTCPFlowControlEvent = Name("network.tcp.flow_control.event")
+	NetworkTCPCongestionEvent  = Name("network.tcp.congestion.event")
+	NetworkIoDirection         = Name(semconv.NetworkIODirectionKey)
+	NetworkTCPResetCause       = Name("network.tcp.reset.cause")
+	// NetworkTransport is the OTel name, used by the socket traffic metrics. The network flow
+	// metrics keep their own Transport attribute.
+	NetworkTransport = Name(semconv.NetworkTransportKey)
+	// NetworkConnectionRole is the side of the connection of the local socket (client or server),
+	// for TCP and UDP. TCP takes it from the handshake, UDP from the bound local ports.
+	NetworkConnectionRole = Name("network.connection.role")
+	// NetworkPeerSameHost tells whether the remote socket is on this host, like Datadog's IntraHost
+	NetworkPeerSameHost = Name("network.peer.same_host")
+	// The addresses of the socket traffic metrics before NAT, like Datadog's
+	// network.client.pre_nat.ip: src.address and dst.address are the ones after it
+	SrcPreNATAddress = Name("src.pre_nat.address")
+	DstPreNATAddress = Name("dst.pre_nat.address")
+	// ServerPreNATPort is the port the client connected to, on the server side of a translated
+	// connection (a published port, a NodePort). Not on the client side, whose own port before
+	// NAT is ephemeral
+	ServerPreNATPort = Name("server.pre_nat.port")
+
+	// The process and container of each side of the socket traffic metrics: src is the local
+	// socket, dst the remote one when it is on the same host.
+	SrcProcessExecutableName = Name("src.process.executable.name")
+	DstProcessExecutableName = Name("dst.process.executable.name")
+	SrcContainerName         = Name("src.container.name")
+	DstContainerName         = Name("dst.container.name")
+	SrcContainerImageName    = Name("src.container.image.name")
+	DstContainerImageName    = Name("dst.container.image.name")
+	SrcContainerImageTag     = Name("src.container.image.tag")
+	DstContainerImageTag     = Name("dst.container.image.tag")
+	SrcContainerID           = Name("src.container.id")
+	DstContainerID           = Name("dst.container.id")
 )

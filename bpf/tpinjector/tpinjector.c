@@ -15,11 +15,13 @@
 #include <common/h2_defs.h>
 #include <common/http_buf_size.h>
 #include <common/http_types.h>
+#include <common/http_trace_parent.h>
 #include <common/lw_thread.h>
 #include <common/msg_buffer.h>
 #include <common/protocol_http_helpers.h>
 #include <common/protocol_http2_helpers.h>
 #include <common/protocol_tcp_helpers.h>
+#include <common/sampling.h>
 #include <common/scratch_mem.h>
 #include <common/ssl_connection.h>
 #include <common/tc_common.h>
@@ -48,6 +50,7 @@
 #include <tpinjector/h2_parse.h>
 #include <tpinjector/inject_policy.h>
 #include <tpinjector/h2_write_transaction.h>
+#include <tpinjector/maps/instrumented_pids.h>
 #include <tpinjector/maps/sk_h2_flags.h>
 #include <tpinjector/maps/sk_h2_conn_flag.h>
 #include <tpinjector/maps/sk_tp_info_pid_map.h>
@@ -74,8 +77,8 @@ char __license[] SEC("license") = "Dual MIT/GPL";
 //   │                                  │
 //   ├── pull_data + fill_msg_buffers   │  Committed to processing
 //   │                                  │
-//   ├── is_h2_socket?                  │  Preface seen / confirmed H2: skip
-//   │     └─ tail-call detect_h2       │  preface check, drive the H2 chain
+//   ├── is_h2_socket?                  │  Preface / probation / confirmed:
+//   │     └─ tail-call detect_h2       │  skip HTTP/1, drive the H2 chain
 //   │                                 │
 //   ├── HTTP/1 detected?              │  ── find_existing_tp ── create_tp ──
 //   │                                 │     write_msg_traceparent
@@ -88,10 +91,13 @@ char __license[] SEC("license") = "Dual MIT/GPL";
 //                                           ▼
 //                                        sniff_h2
 //                                           │ strict mid-stream frame sniff;
-//                                           │ confirms H2, marks the socket
+//                                           │ 1st send: probation, no inject;
+//                                           │ next send (via detect_h2) must
+//                                           │ tile too: confirm, else reject
 //                                           ▼
 //                                        detect_h2 ◀──────────────┐
-//                                           │                     │
+//                                           │ known-SSL: reject    │
+//                                           │ probation: sniff_h2  │
 //                                           │ preface→SETTINGS     │ resume on
 //                                           │ confirms genuine H2  │ batched
 //                                           │ (else reject);       │ frame via
@@ -125,6 +131,9 @@ enum {
 volatile const u32 inject_flags =
     k_inject_http_headers | k_inject_tcp_options; // default: both enabled
 
+// set when user space can backfill earlier connections; otherwise every client socket is enrolled
+volatile const bool enroll_instrumented_only = false;
+
 // Kind 25 is unassigned per IANA TCP Parameters registry (released 2000-12-18)
 // Better than experimental options (253-254) which must not be shipped as defaults
 enum { k_tcp_option_kind_otel = 25 };
@@ -139,10 +148,12 @@ enum {
     k_tail_validate_h2_tp,
     k_tail_detect_h2,
     k_tail_sniff_h2,
+    k_tail_parse_existing_tp,
 };
 
 int obi_packet_extender_write_msg_tp(struct sk_msg_md *msg);
 int obi_packet_extender_find_existing_tp(struct sk_msg_md *msg);
+int obi_packet_extender_parse_existing_tp(struct sk_msg_md *msg);
 int obi_packet_extender_create_tp(struct sk_msg_md *msg);
 int obi_packet_extender_write_h2_tp(struct sk_msg_md *msg);
 int obi_packet_extender_create_h2_tp(struct sk_msg_md *msg);
@@ -153,7 +164,7 @@ int obi_packet_extender_sniff_h2(struct sk_msg_md *msg);
 
 struct {
     __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
-    __uint(max_entries, 9);
+    __uint(max_entries, 10);
     __uint(key_size, sizeof(u32));
     __array(values, int(void *));
 } extender_jump_table SEC(".maps") = {
@@ -168,6 +179,7 @@ struct {
             [k_tail_validate_h2_tp] = (void *)&obi_packet_extender_validate_h2_tp,
             [k_tail_detect_h2] = (void *)&obi_packet_extender_detect_h2,
             [k_tail_sniff_h2] = (void *)&obi_packet_extender_sniff_h2,
+            [k_tail_parse_existing_tp] = (void *)&obi_packet_extender_parse_existing_tp,
         },
 };
 
@@ -183,6 +195,8 @@ typedef struct tailcall_ctx {
     u32 h2_hpack_len;             // HPACK length (frame payload minus prefix and trailing pad)
     u32 h2_scan_pos;              // resume offset for detect_h2 across tail calls
     u32 h2_tp_candidate_pos;      // HPACK scan start or found candidate offset (>= max = none)
+    u32 http1_tp_offset;          // start of the HTTP/1 traceparent header
+    h2_sniff_state_t h2_framing;  // strict frame rules, carried across detect_h2 hops
     u8 niter;                     // HTTP/1 find-existing scan iteration counter
     u8 h2_frames;                 // H2 frames already injected this packet (capped)
     u8 h2_tp_retries;             // malformed HPACK traceparent candidates retried this packet
@@ -191,6 +205,7 @@ typedef struct tailcall_ctx {
     bool tp_present;              // frame already carries a traceparent we cannot adopt
     bool scan_exhausted;          // retry budget ran out before the block was walked
     u8 opener;                    // first HPACK field byte of the frame being considered
+    u8 _pad[4];
 } tailcall_ctx;
 
 SCRATCH_MEM(tailcall_ctx);
@@ -206,7 +221,9 @@ h2_resume_after(struct sk_msg_md *msg, tailcall_ctx *t_ctx, u32 next_pos) {
     bpf_tail_call_static(msg, &extender_jump_table, k_tail_detect_h2);
 }
 
-// Per-socket HTTP/2 detection state (sk_h2_conn_flag values).
+// Per-socket HTTP/2 detection state (sk_h2_conn_flag values). States only ever
+// move towards confirmed or rejected; rejected is final, and confirmed can still
+// become rejected when the SSL uprobes mark the socket.
 //
 // We only splice an HPACK traceparent once we've confirmed a *genuine* HTTP/2
 // stream. RFC 7540 §3.4/§3.5 require the client connection preface
@@ -220,7 +237,12 @@ enum {
     k_h2_sock_none = 0,      // nothing seen yet
     k_h2_sock_preface = 1,   // preface seen, awaiting the mandatory SETTINGS frame
     k_h2_sock_confirmed = 2, // SETTINGS seen after preface — genuine HTTP/2, inject
-    k_h2_sock_rejected = 3,  // post-preface bytes were not SETTINGS — never inject
+    k_h2_sock_rejected = 3,  // not HTTP/2, or known TLS — never inject
+    // One send of a socket with no preface framed as HTTP/2. Not injectable until
+    // a later send frames exactly too: a tunnel carrying whole H2 frames in its
+    // own length-prefixed messages matches once, then its own framing does not.
+    // A send longer than the frame walk decides nothing and leaves it here.
+    k_h2_sock_probation = 4,
 };
 
 static __always_inline u8 h2_sock_state(struct sk_msg_md *msg) {
@@ -303,12 +325,13 @@ static __always_inline void set_h2_sock_state(struct sk_msg_md *msg, u8 state) {
     }
 }
 
-// True while the socket is in an HTTP/2 scanning state (preface seen or
-// confirmed) — i.e. detect_h2 should keep driving its state machine. Rejected
+// True while the socket is in an HTTP/2 scanning state (preface seen, probation
+// or confirmed) — i.e. detect_h2 should keep driving its state machine. Rejected
 // and never-seen sockets are excluded.
 static __always_inline bool is_h2_socket(struct sk_msg_md *msg) {
     const u8 state = h2_sock_state(msg);
-    return state == k_h2_sock_preface || state == k_h2_sock_confirmed;
+    return state == k_h2_sock_preface || state == k_h2_sock_probation ||
+           state == k_h2_sock_confirmed;
 }
 
 #ifndef ENOMSG
@@ -320,6 +343,7 @@ struct tp_option {
     u8 len;
     unsigned char trace_id[TRACE_ID_SIZE_BYTES];
     unsigned char span_id[SPAN_ID_SIZE_BYTES];
+    u8 flags;
 };
 
 static __always_inline const char *tp_string_from_opt(const struct tp_option *opt) {
@@ -371,8 +395,10 @@ static __always_inline void print_tp(const char *msg, const tp_info_t *tp) {
 // be injecting the Traceparent in. Another place which sets up this map is
 // the kprobe on tcp_sendmsg, however that happens after the sock_msg runs,
 // so we have a different detection for that - protocol_detector.
-static __always_inline tp_info_pid_t *get_tp_info_pid(const egress_key_t *e_key) {
-    return bpf_map_lookup_elem(&outgoing_trace_map, e_key);
+static __always_inline tp_info_pid_t *get_tp_info_pid(const egress_key_t *e_key, u32 pid) {
+    // Port pairs are shared across processes and network namespaces.
+    tp_info_pid_t *tp = bpf_map_lookup_elem(&outgoing_trace_map, e_key);
+    return tp && tp->pid == pid ? tp : NULL;
 }
 
 static __always_inline void set_tp_info_pid(const egress_key_t *e_key, const tp_info_pid_t *tp_p) {
@@ -472,22 +498,18 @@ static __always_inline connection_info_t sk_msg_extract_key_ip6(struct sk_msg_md
     return conn;
 }
 
-static __always_inline void init_tp_ctx_parent_tp(tailcall_ctx *t_ctx) {
+static __always_inline void init_tp_ctx_parent_tp(tailcall_ctx *t_ctx, const tp_info_t *wire) {
     t_ctx->parent_tp.ts = bpf_ktime_get_ns();
     t_ctx->parent_tp.flags = 1;
 
     t_ctx->has_parent_tp = find_parent_trace_for_client_request(
-        &t_ctx->p_conn, t_ctx->p_conn.conn.d_port, k_lw_thread_none, &t_ctx->parent_tp);
+        &t_ctx->p_conn, t_ctx->p_conn.conn.d_port, k_lw_thread_none, &t_ctx->parent_tp, wire);
 }
 
 static __always_inline bool create_trace_info(const tailcall_ctx *t_ctx, tp_info_pid_t *tp_p) {
-    // t_ctx->parent_tp was initialised earlier in init_tp_ctx_parent_tp - if
-    // t_ctx->has_parent_tp is true, then it actually contains a valid tp_info
-    // with the corrent trace_id and parent_id - all we need to do is generate
-    // a new span_id
-    // this logic is cumbersome, but it is done so to avoid calling
-    // find_trace_for_client_request multiple times (i.e. once here, and once
-    // earlier in  k_tail_find_existing_tp - sorry!
+    // callers run init_tp_ctx_parent_tp first - if t_ctx->has_parent_tp is
+    // true, then t_ctx->parent_tp contains a valid tp_info with the correct
+    // trace_id and parent_id - all we need to do is generate a new span_id
     urand_bytes(tp_p->tp.span_id, sizeof(tp_p->tp.span_id));
     tp_p->tp.flags = 1;
     tp_p->valid = 1;
@@ -499,11 +521,13 @@ static __always_inline bool create_trace_info(const tailcall_ctx *t_ctx, tp_info
 
         __builtin_memcpy(tp_p->tp.trace_id, t_ctx->parent_tp.trace_id, sizeof(tp_p->tp.trace_id));
         __builtin_memcpy(tp_p->tp.parent_id, t_ctx->parent_tp.span_id, sizeof(tp_p->tp.parent_id));
+        tp_p->tp.flags = t_ctx->parent_tp.flags;
     } else {
         bpf_dbg_printk("generating tp info");
 
         new_trace_id(&tp_p->tp);
         __builtin_memset(tp_p->tp.parent_id, 0, sizeof(tp_p->tp.parent_id));
+        sample_new_trace(&tp_p->tp);
     }
 
     return true;
@@ -513,20 +537,48 @@ static __always_inline void bpf_sock_ops_set_flags(struct bpf_sock_ops *skops, u
     bpf_sock_ops_cb_flags_set(skops, skops->bpf_sock_ops_cb_flags | flags);
 }
 
+// sock_ops gets bpf_get_current_pid_tgid only from 6.10, and the filter reads just the tgid half
+static __always_inline bool owner_instrumented(void) {
+    const struct task_struct *task = (const struct task_struct *)bpf_get_current_task();
+    return pid_in_filter(&instrumented_pids, (u64)BPF_CORE_READ(task, tgid) << 32) != 0;
+}
+
+// connect() runs in the owner's context, unlike the established callback: this storage is the mark
+static __always_inline void bpf_sock_ops_connect_cb(struct bpf_sock_ops *skops) {
+    struct bpf_sock *sk = skops->sk;
+
+    if (!enroll_instrumented_only || !sk || !owner_instrumented()) {
+        return;
+    }
+
+    const u64 cookie = bpf_get_socket_cookie(skops);
+    bpf_sk_storage_get(&socket_cookie, sk, (void *)&cookie, BPF_SK_STORAGE_GET_F_CREATE);
+}
+
 // Helper that writes in the sock map for a sock_ops program
 static __always_inline void bpf_sock_ops_active_est_cb(struct bpf_sock_ops *skops) {
+    // armed on every client socket in tcp mode: a backfilled socket is past this callback
+    if (inject_flags & k_inject_tcp_options) {
+        bpf_sock_ops_set_flags(skops, BPF_SOCK_OPS_WRITE_HDR_OPT_CB_FLAG);
+    }
+
     const u64 cookie = bpf_get_socket_cookie(skops);
     struct bpf_sock *sk = skops->sk;
 
-    if (sk) {
+    if (!sk) {
+        return;
+    }
+
+    if (!enroll_instrumented_only) {
         bpf_sk_storage_get(&socket_cookie, sk, (void *)&cookie, BPF_SK_STORAGE_GET_F_CREATE);
+    } else if (!bpf_sk_storage_get(&socket_cookie, sk, NULL, 0)) {
+        return;
     }
 
     if (bpf_sock_hash_update(skops, &sock_dir, (void *)&cookie, BPF_ANY) == 0) {
         bpf_map_update_elem(&tracked_sock_cookies, &cookie, &(u8){1}, BPF_ANY);
         bpf_sock_ops_set_flags(skops, BPF_SOCK_OPS_STATE_CB_FLAG);
     }
-    bpf_sock_ops_set_flags(skops, BPF_SOCK_OPS_WRITE_HDR_OPT_CB_FLAG);
 }
 
 // every full-socket death path goes through tcp_set_state(TCP_CLOSE), which is
@@ -591,6 +643,7 @@ static __always_inline void bpf_sock_ops_write_hdr_cb(struct bpf_sock_ops *skops
 
     __builtin_memcpy(opt.trace_id, tp_pid->tp.trace_id, sizeof(opt.trace_id));
     __builtin_memcpy(opt.span_id, tp_pid->tp.span_id, sizeof(opt.span_id));
+    opt.flags = tp_pid->tp.flags;
 
     const long ret = bpf_store_hdr_opt(skops, &opt, sizeof(opt), 0);
 
@@ -639,6 +692,8 @@ static __always_inline void bpf_sock_ops_parse_hdr_cb(struct bpf_sock_ops *skops
 
     __builtin_memcpy(tp.tp.trace_id, opt.trace_id, sizeof(tp.tp.trace_id));
     __builtin_memcpy(tp.tp.span_id, opt.span_id, sizeof(tp.tp.span_id));
+    // older OBI versions send the option without the flags byte
+    tp.tp.flags = (ret < (long)sizeof(opt)) ? k_flag_sampled : opt.flags;
 
     connection_info_t conn = get_connection_info_ops(skops);
     sort_connection_info(&conn);
@@ -647,7 +702,7 @@ static __always_inline void bpf_sock_ops_parse_hdr_cb(struct bpf_sock_ops *skops
     bpf_map_update_elem(&incoming_trace_map, &conn, &tp, BPF_ANY);
 }
 
-// Tracks all outgoing sockets (BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB)
+// Tracks outgoing sockets (BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB) of instrumented processes
 // We don't track incoming, those would be BPF_SOCK_OPS_PASSIVE_ESTABLISHED_CB
 SEC("sockops")
 int obi_sockmap_tracker(struct bpf_sock_ops *skops) {
@@ -658,6 +713,9 @@ int obi_sockmap_tracker(struct bpf_sock_ops *skops) {
     }
 
     switch (skops->op) {
+    case BPF_SOCK_OPS_TCP_CONNECT_CB:
+        bpf_sock_ops_connect_cb(skops);
+        break;
     case BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB:
         bpf_sock_ops_active_est_cb(skops);
         break;
@@ -1046,9 +1104,12 @@ static __always_inline bool is_http2_preface(const unsigned char *d, const unsig
            d[2] == 'I' && d[3] == ' ';
 }
 
-// Mid-stream H2 recognition for sockets whose preface predates attachment. On success
-// hpack_at holds the HPACK offset of the first HEADERS frame, 0 if the buffer carried none.
-static __always_inline bool sniff_http2_frames(struct sk_msg_md *msg, u32 *hpack_at) {
+// Mid-stream H2 recognition for sockets whose preface predates attachment. Walks up to
+// k_h2_sniff_max_frames frames: strict applies the sniff rules to each one, otherwise only the
+// framing is checked. hpack_at holds the HPACK offset of the first HEADERS frame, 0 if none.
+static __always_inline h2_walk_result_t sniff_http2_frames(struct sk_msg_md *msg,
+                                                           const bool strict,
+                                                           u32 *hpack_at) {
     const u32 msg_size = msg->size;
     u32 pos = 0;
     h2_sniff_state_t st = {0};
@@ -1057,23 +1118,24 @@ static __always_inline bool sniff_http2_frames(struct sk_msg_md *msg, u32 *hpack
 
     for (u8 i = 0; i < k_h2_sniff_max_frames && pos < msg_size; i++) {
         if (pos + k_h2_frame_header_len > msg_size) {
-            return false;
+            return k_h2_walk_mismatch;
         }
+        // bytes the helpers fail to expose are no evidence against HTTP/2
         if (bpf_msg_pull_data(msg, pos, pos + k_h2_frame_header_len, 0) != 0) {
-            return false;
+            return k_h2_walk_unfinished;
         }
         const unsigned char *d = msg->data;
         if (!d || (void *)d + k_h2_frame_header_len > msg->data_end) {
-            return false;
+            return k_h2_walk_unfinished;
         }
 
         const u8 ftype = d[3];
         const u8 fflags = d[4];
         const bool first_headers = !st.seen_headers;
 
-        u32 frame_len;
-        if (!h2_sniff_frame_header(&st, d, &frame_len)) {
-            return false;
+        u32 frame_len = h2_frame_payload_len(d);
+        if (strict && !h2_sniff_frame_header(&st, d, &frame_len)) {
+            return k_h2_walk_mismatch;
         }
 
         if (ftype == k_h2_frame_headers && first_headers) {
@@ -1083,7 +1145,7 @@ static __always_inline bool sniff_http2_frames(struct sk_msg_md *msg, u32 *hpack
         pos += k_h2_frame_header_len + frame_len;
     }
 
-    return h2_sniff_accept(&st, pos, msg_size);
+    return h2_sniff_walk_result(&st, pos, msg_size);
 }
 
 // Frame shapes alone match random bytes, so a sniffed buffer only counts as H2 once its first
@@ -1139,16 +1201,38 @@ static __always_inline void wrap_http2_traceparent(struct sk_msg_md *msg,
     bpf_tail_call_static(msg, &extender_jump_table, k_tail_sniff_h2);
 }
 
-// k_tail_sniff_h2 — mid-stream H2 sniff for a socket with no preface
+// k_tail_sniff_h2 — mid-stream H2 sniff for a socket with no preface. The first
+// send that frames as H2 only puts the socket on probation; the next one decides.
 SEC("sk_msg")
 int obi_packet_extender_sniff_h2(struct sk_msg_md *msg) {
     const u32 msg_size = msg->size;
+    const bool on_probation = h2_sock_state(msg) == k_h2_sock_probation;
     u32 hpack_at = 0;
 
-    if (sniff_http2_frames(msg, &hpack_at) && hpack_at &&
-        sniffed_block_is_h2(msg, hpack_at, msg_size)) {
+    // Walked once for both cases: the frame walk is this program's whole verifier budget.
+    // The deciding send is checked on framing only: a tunnel's own framing and a TLS record
+    // already fail there, and rejecting a legal frame would cost the connection for good.
+    const h2_walk_result_t walk = sniff_http2_frames(msg, !on_probation, &hpack_at);
+
+    if (on_probation) {
+        // more frames than the walk covers: let the next send decide
+        if (walk == k_h2_walk_unfinished) {
+            return SK_PASS;
+        }
+
+        // a tunnel's own framing or a TLS record never tiles as H2 frames
+        if (walk != k_h2_walk_tiled) {
+            set_h2_sock_state(msg, k_h2_sock_rejected);
+            return SK_PASS;
+        }
+
         set_h2_sock_state(msg, k_h2_sock_confirmed);
         bpf_tail_call_static(msg, &extender_jump_table, k_tail_detect_h2);
+        return SK_PASS;
+    }
+
+    if (walk == k_h2_walk_tiled && hpack_at && sniffed_block_is_h2(msg, hpack_at, msg_size)) {
+        set_h2_sock_state(msg, k_h2_sock_probation);
     }
 
     return SK_PASS;
@@ -1220,10 +1304,11 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     t_ctx->h2_scan_pos = 0;
     t_ctx->h2_frames = 0;
     t_ctx->h2_tp_retries = 0;
+    bpf_memset(&t_ctx->h2_framing, 0, sizeof(t_ctx->h2_framing));
     t_ctx->go_grpc_conn = false;
 
     // skip H2 here — it uses HPACK for per-stream traceparents
-    tp_info_pid_t *tp_pid = get_tp_info_pid(&e_key);
+    tp_info_pid_t *tp_pid = get_tp_info_pid(&e_key, t_ctx->p_conn.pid);
     if (tp_pid && !is_h2_socket(msg) &&
         handle_existing_tp_pid(msg, id, &t_ctx->p_conn, &e_key, tp_pid)) {
         return SK_PASS;
@@ -1263,7 +1348,6 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     const bool is_http = protocol_detector(msg, id, &conn);
     if (is_http) {
         bpf_dbg_printk("len=%d, s_port=%d", msg->size, msg->local_port);
-        init_tp_ctx_parent_tp(t_ctx);
         bpf_tail_call_static(msg, &extender_jump_table, k_tail_find_existing_tp);
         return SK_PASS;
     }
@@ -1320,33 +1404,29 @@ assign_parent_tp(const tailcall_ctx *t_ctx, tp_info_t *tp, unsigned char *span_i
     }
 }
 
+enum {
+    k_http1_max_scan_iters = 4,
+    k_http1_scan_chunk_size = 1024,
+};
+
 //k_tail_find_existing_tp
 SEC("sk_msg")
 int obi_packet_extender_find_existing_tp(struct sk_msg_md *msg) {
-    const u32 k_max_iter = 4;          // iterate up to 4KB
-    const u32 k_max_chunk_size = 1024; // 1KB chunks per iteration
-
     tailcall_ctx *t_ctx = tailcall_ctx_mem();
 
     if (!t_ctx) {
         return SK_PASS;
     }
 
-    tp_info_pid_t *tp_p = (tp_info_pid_t *)tp_info_mem();
-
-    if (!tp_p) {
-        return SK_PASS;
-    }
-
     const u32 niter = t_ctx->niter;
 
-    if (niter >= k_max_iter) {
+    if (niter >= k_http1_max_scan_iters) {
         return SK_PASS;
     }
 
     unsigned char *b = msg->data;
     const unsigned char *e = msg->data_end;
-    unsigned char *ptr = b + (niter * k_max_chunk_size);
+    unsigned char *ptr = b + (niter * k_http1_scan_chunk_size);
 
     if (ptr + 1 > e) {
         return SK_PASS;
@@ -1356,8 +1436,8 @@ int obi_packet_extender_find_existing_tp(struct sk_msg_md *msg) {
 
     u32 data_size = e - ptr;
 
-    if (data_size > k_max_chunk_size) {
-        data_size = k_max_chunk_size;
+    if (data_size > k_http1_scan_chunk_size) {
+        data_size = k_http1_scan_chunk_size;
     }
 
     for (u32 i = 0; i < data_size; ++i) {
@@ -1367,55 +1447,8 @@ int obi_packet_extender_find_existing_tp(struct sk_msg_md *msg) {
         }
 
         if (is_traceparent(ptr)) {
-            ptr += TP_TID_PREFIX_SIZE;
-
-            decode_hex(tp_p->tp.trace_id, ptr, TRACE_ID_CHAR_LEN);
-
-            ptr += TRACE_ID_CHAR_LEN;
-
-            if (*ptr++ != '-') {
-                return SK_PASS;
-            }
-
-            decode_hex(tp_p->tp.span_id, ptr, SPAN_ID_CHAR_LEN);
-
-            unsigned char *span_id = ptr;
-
-            ptr += SPAN_ID_CHAR_LEN;
-
-            if (*ptr++ != '-') {
-                return SK_PASS;
-            }
-
-            decode_hex((unsigned char *)&tp_p->tp.flags, ptr, FLAGS_CHAR_LEN);
-
-            ptr += FLAGS_CHAR_LEN;
-
-            if (*ptr++ != '\r' || *ptr != '\n') {
-                return SK_PASS;
-            }
-
-            // if we got to this point, we managed to parse a valid
-            // 'Traceparent: ...' header that we can utilise
-
-            bpf_memset(tp_p->tp.parent_id, 0, sizeof(tp_p->tp.parent_id));
-            assign_parent_tp(t_ctx, &tp_p->tp, span_id);
-
-            tp_p->tp.ts = bpf_ktime_get_ns();
-            tp_p->tp.flags = 1;
-            tp_p->valid = 1;
-            tp_p->written = 1;
-            tp_p->pid = t_ctx->p_conn.pid;
-            tp_p->req_type = k_event_type_http_client;
-
-            print_tp("found TP in headers", &tp_p->tp);
-
-            set_tp_info_pid(&t_ctx->e_key, tp_p);
-
-            if (inject_flags & k_inject_tcp_options) {
-                schedule_write_tcp_option(msg, tp_p);
-            }
-
+            t_ctx->http1_tp_offset = niter * k_http1_scan_chunk_size + i;
+            bpf_tail_call_static(msg, &extender_jump_table, k_tail_parse_existing_tp);
             return SK_PASS;
         }
 
@@ -1424,10 +1457,83 @@ int obi_packet_extender_find_existing_tp(struct sk_msg_md *msg) {
 
     t_ctx->niter++;
 
-    if (t_ctx->niter < k_max_iter) {
+    if (t_ctx->niter < k_http1_max_scan_iters) {
         bpf_tail_call_static(msg, &extender_jump_table, k_tail_find_existing_tp);
     } else {
         bpf_tail_call_static(msg, &extender_jump_table, k_tail_create_tp);
+    }
+
+    return SK_PASS;
+}
+
+// Decoding outside the scan loop keeps verifier exploration within its instruction budget.
+SEC("sk_msg")
+int obi_packet_extender_parse_existing_tp(struct sk_msg_md *msg) {
+    tailcall_ctx *t_ctx = tailcall_ctx_mem();
+    if (!t_ctx) {
+        return SK_PASS;
+    }
+
+    tp_info_pid_t *tp_p = (tp_info_pid_t *)tp_info_mem();
+    if (!tp_p) {
+        return SK_PASS;
+    }
+
+    u32 offset = t_ctx->http1_tp_offset;
+    bpf_clamp_umax(offset, k_http1_max_scan_iters * k_http1_scan_chunk_size - 1);
+    unsigned char *ptr = msg->data + offset;
+    const unsigned char *end = msg->data_end;
+    if (ptr + TP_SIZE + 1 > end || !is_traceparent(ptr)) {
+        return SK_PASS;
+    }
+
+    ptr += TP_TID_PREFIX_SIZE;
+
+    decode_hex(tp_p->tp.trace_id, ptr, TRACE_ID_CHAR_LEN);
+
+    ptr += TRACE_ID_CHAR_LEN;
+
+    if (*ptr++ != '-') {
+        return SK_PASS;
+    }
+
+    decode_hex(tp_p->tp.span_id, ptr, SPAN_ID_CHAR_LEN);
+
+    unsigned char *span_id = ptr;
+
+    ptr += SPAN_ID_CHAR_LEN;
+
+    if (*ptr++ != '-') {
+        return SK_PASS;
+    }
+
+    decode_hex((unsigned char *)&tp_p->tp.flags, ptr, FLAGS_CHAR_LEN);
+
+    ptr += FLAGS_CHAR_LEN;
+
+    if (*ptr++ != '\r' || *ptr != '\n') {
+        return SK_PASS;
+    }
+
+    // if we got to this point, we managed to parse a valid
+    // 'Traceparent: ...' header that we can utilise
+
+    tp_p->tp.ts = bpf_ktime_get_ns();
+    init_tp_ctx_parent_tp(t_ctx, &tp_p->tp);
+    bpf_memset(tp_p->tp.parent_id, 0, sizeof(tp_p->tp.parent_id));
+    assign_parent_tp(t_ctx, &tp_p->tp, span_id);
+
+    tp_p->valid = 1;
+    tp_p->written = 1;
+    tp_p->pid = t_ctx->p_conn.pid;
+    tp_p->req_type = k_event_type_http_client;
+
+    print_tp("found TP in headers", &tp_p->tp);
+
+    set_tp_info_pid(&t_ctx->e_key, tp_p);
+
+    if (inject_flags & k_inject_tcp_options) {
+        schedule_write_tcp_option(msg, tp_p);
     }
 
     return SK_PASS;
@@ -1448,6 +1554,7 @@ int obi_packet_extender_create_tp(struct sk_msg_md *msg) {
         return SK_PASS;
     }
 
+    init_tp_ctx_parent_tp(t_ctx, NULL);
     if (!create_trace_info(t_ctx, tp_p)) {
         return SK_PASS;
     }
@@ -1491,6 +1598,21 @@ int obi_packet_extender_detect_h2(struct sk_msg_md *msg) {
 
     u8 state = h2_sock_state(msg);
     if (state == k_h2_sock_rejected) {
+        return SK_PASS;
+    }
+
+    // Every way into the H2 chain passes here, including sockets classified before
+    // the SSL uprobes marked them. The payload is ciphertext from then on. Reject
+    // rather than skip: the generic tracer deletes the mark when each request ends,
+    // and the tcp_sendmsg kprobe sets it again only after this program has run. The
+    // mark cannot change within one send, so the first hop is enough.
+    if (pos == 0 && is_ssl_connection(&t_ctx->p_conn)) {
+        set_h2_sock_state(msg, k_h2_sock_rejected);
+        return SK_PASS;
+    }
+
+    if (state == k_h2_sock_probation) {
+        bpf_tail_call_static(msg, &extender_jump_table, k_tail_sniff_h2);
         return SK_PASS;
     }
 
@@ -1553,10 +1675,19 @@ int obi_packet_extender_detect_h2(struct sk_msg_md *msg) {
         return SK_PASS;
     }
 
+    // A confirmed socket can still carry a send that does not start on a frame
+    // boundary: a partial write resumed mid-frame, or bytes that were never HTTP/2.
+    // Stop at the first frame a conforming sender cannot emit. The state lives in
+    // t_ctx so a header block left open by one hop is still open in the next.
+    h2_sniff_state_t *framing = &t_ctx->h2_framing;
+
     // Scan up to 4 frames for HEADERS+END_HEADERS
     for (u8 i = 0; i < k_h2_max_frame_scan; i++) {
         h2_frame_info_t f;
         if (!parse_h2_frame_at(msg, pos, msg_size, &f)) {
+            return SK_PASS;
+        }
+        if (!h2_sniff_check_frame(framing, f.payload_len, f.ftype, f.flags, f.r_bit, f.stream_id)) {
             return SK_PASS;
         }
         if (f.is_headers_end) {
@@ -1592,7 +1723,7 @@ int obi_packet_extender_detect_h2(struct sk_msg_md *msg) {
             t_ctx->h2_tp_retries = 0;
             t_ctx->opener = facts.opener;
 
-            tp_info_pid_t *go_tp = get_tp_info_pid(&t_ctx->e_key);
+            tp_info_pid_t *go_tp = get_tp_info_pid(&t_ctx->e_key, t_ctx->p_conn.pid);
             if (go_tp && go_tp->valid && go_tp->written) {
                 h2_resume_after(msg, t_ctx, pos + k_h2_frame_header_len + f.payload_len);
                 return SK_PASS;
@@ -1622,7 +1753,7 @@ static __always_inline bool decode_tp_value(const unsigned char *val, tp_info_t 
     }
     decode_hex(tp->trace_id, &val[k_tp_val_trace_id_start], TRACE_ID_CHAR_LEN);
     decode_hex(tp->span_id, &val[k_tp_val_span_id_start], SPAN_ID_CHAR_LEN);
-    tp->flags = 1;
+    decode_hex((unsigned char *)&tp->flags, &val[k_tp_val_flags_start], FLAGS_CHAR_LEN);
     return true;
 }
 
@@ -1803,7 +1934,7 @@ int obi_packet_extender_validate_h2_tp(struct sk_msg_md *msg) {
     }
 
     if (off) {
-        init_tp_ctx_parent_tp(t_ctx);
+        init_tp_ctx_parent_tp(t_ctx, NULL);
         bpf_memset(tp_p->tp.parent_id, 0, sizeof(tp_p->tp.parent_id));
         const u32 span_id_offset = hpack_start + target + off;
         if (apply_parent_tp(t_ctx, &tp_p->tp)) {
@@ -1858,7 +1989,7 @@ int obi_packet_extender_create_h2_tp(struct sk_msg_md *msg) {
     }
     bpf_memset(tp_p, 0, sizeof(*tp_p));
 
-    tp_info_pid_t *existing = get_tp_info_pid(&t_ctx->e_key);
+    tp_info_pid_t *existing = get_tp_info_pid(&t_ctx->e_key, t_ctx->p_conn.pid);
     const bool have_existing = existing && existing->valid && valid_trace(existing->tp.trace_id);
 
     h2_inject_facts_t facts = {0};
@@ -1880,12 +2011,12 @@ int obi_packet_extender_create_h2_tp(struct sk_msg_md *msg) {
     if (have_existing) {
         bpf_memcpy(tp_p, existing, sizeof(*tp_p));
     } else {
-        init_tp_ctx_parent_tp(t_ctx);
+        init_tp_ctx_parent_tp(t_ctx, NULL);
         if (!create_trace_info(t_ctx, tp_p)) {
             return SK_PASS;
         }
         if (bpf_map_update_elem(&outgoing_trace_map, &t_ctx->e_key, tp_p, BPF_NOEXIST) != 0) {
-            existing = get_tp_info_pid(&t_ctx->e_key);
+            existing = get_tp_info_pid(&t_ctx->e_key, t_ctx->p_conn.pid);
             if (existing) {
                 bpf_memcpy(tp_p, existing, sizeof(*tp_p));
             }

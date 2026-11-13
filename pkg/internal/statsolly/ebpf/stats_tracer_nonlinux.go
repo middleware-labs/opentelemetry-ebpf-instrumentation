@@ -15,7 +15,10 @@ import (
 
 type StatsFetcher struct{}
 
-func NewStatsFetcher(_ *config.EBPFTracer, _ *export.Features, _ *attributes.SelectorConfig) (*StatsFetcher, error) {
+func NewStatsFetcher(
+	_ *config.EBPFTracer, _ *export.Features, _ *attributes.SelectorConfig, _ *config.SocketTrafficConfig,
+	_ bool, _ func(*ciliumebpf.Map) error, _ bool,
+) (*StatsFetcher, error) {
 	return nil, nil
 }
 
@@ -25,6 +28,26 @@ func (m *StatsFetcher) Close() error {
 }
 
 func (m *StatsFetcher) StatsEventsMap() *ciliumebpf.Map {
+	return nil
+}
+
+func (m *StatsFetcher) StatsDNSEventsMap() *ciliumebpf.Map {
+	return nil
+}
+
+func (m *StatsFetcher) SocketTrafficMap() *ciliumebpf.Map {
+	return nil
+}
+
+func (m *StatsFetcher) SocketTrafficClosedMap() *ciliumebpf.Map {
+	return nil
+}
+
+func (m *StatsFetcher) SocketTrafficDropsMap() *ciliumebpf.Map {
+	return nil
+}
+
+func (m *StatsFetcher) NATTranslationsMap() *ciliumebpf.Map {
 	return nil
 }
 

@@ -141,6 +141,12 @@ func TestServiceAttributesAreNotMetricDefaults(t *testing.T) {
 
 func TestDotnetRuntimeDefinitions(t *testing.T) {
 	definitions := getDefinitions(0, NewGroupAttributes(nil))
+	for _, metricName := range []Name{DotnetGCHeapSize, DotnetGCHeapFragmentation} {
+		heap, ok := definitions[metricName.Section]
+		require.True(t, ok)
+		assert.Contains(t, heap.Default(), attr.DotnetGCHeapGeneration)
+		assert.Equal(t, InstrumentUpDownCounter, metricName.Type)
+	}
 	cpuTime, ok := definitions[DotnetProcessCPUTime.Section]
 	require.True(t, ok)
 	assert.Contains(t, cpuTime.Default(), attr.CPUMode)

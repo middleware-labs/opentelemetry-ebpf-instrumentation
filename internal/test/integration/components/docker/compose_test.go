@@ -39,8 +39,14 @@ services:
 func fixtureCompose(t *testing.T) *Compose {
 	t.Helper()
 
+	return composeFromYAML(t, composeFixture)
+}
+
+func composeFromYAML(t *testing.T, content string) *Compose {
+	t.Helper()
+
 	path := filepath.Join(t.TempDir(), "compose.yml")
-	require.NoError(t, os.WriteFile(path, []byte(composeFixture), 0o600))
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
 
 	return &Compose{Path: path}
 }
@@ -62,10 +68,87 @@ func TestServicesToBuildSkipsPrebuiltImages(t *testing.T) {
 		"services without a build section or with a prebuilt image must be skipped")
 }
 
+func TestServicesToBuildResolvesImageVariables(t *testing.T) {
+	t.Setenv("PREBUILT_IMAGES", "hatest-obi")
+	c := composeFromYAML(t, `
+services:
+  defaulted:
+    build: ../../..
+    image: ${DEFAULTED_OBI_IMAGE:-hatest-obi}
+  overridden:
+    build: ../../..
+    image: ${OVERRIDDEN_OBI_IMAGE:-hatest-obi}
+`)
+	c.Env = []string{"OVERRIDDEN_OBI_IMAGE=hatest-other"}
+
+	services, ok := c.servicesToBuild()
+	require.True(t, ok)
+	assert.Equal(t, []string{"overridden"}, services,
+		"an image variable must be compared after compose resolves it")
+}
+
+func TestServicesToBuildSkipsInactiveProfiles(t *testing.T) {
+	t.Setenv("PREBUILT_IMAGES", "hatest-obi")
+	c := composeFromYAML(t, `
+services:
+  always:
+    build: ../../..
+  central:
+    build: ../../..
+    profiles: [central]
+`)
+
+	services, ok := c.servicesToBuild()
+	require.True(t, ok)
+	assert.Equal(t, []string{"always"}, services, "services of inactive profiles are never started")
+
+	c.Env = []string{"COMPOSE_PROFILES=tools,central"}
+	services, ok = c.servicesToBuild()
+	require.True(t, ok)
+	assert.Equal(t, []string{"always", "central"}, services)
+}
+
 func TestServicesToBuildFallsBackOnUnreadableFile(t *testing.T) {
 	t.Setenv("PREBUILT_IMAGES", "hatest-obi")
 	c := &Compose{Path: filepath.Join(t.TempDir(), "missing.yml")}
 
 	_, ok := c.servicesToBuild()
 	assert.False(t, ok, "unparseable compose file must fall back to building everything")
+}
+
+func TestComposeArgsIncludeOverrides(t *testing.T) {
+	c := &Compose{
+		Path:          "compose.yml",
+		OverridePaths: []string{"first.yml", "second.yml"},
+	}
+
+	assert.Equal(t, []string{
+		"compose", "--ansi", "never",
+		"-f", "compose.yml",
+		"-f", "first.yml",
+		"-f", "second.yml",
+		"up", "--detach",
+	}, c.composeArgs("up", "--detach"))
+}
+
+func TestComposeSuiteWithConfigMigration(t *testing.T) {
+	compose, err := ComposeSuiteWithConfigMigration(
+		"compose.yml",
+		filepath.Join(t.TempDir(), "compose.log"),
+		ConfigMigration{
+			Source: "obi-config.yml",
+			Output: "obi-config-v2.yml",
+			Image:  "hatest-obi",
+		},
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, compose.Logger.Close())
+	})
+
+	require.Len(t, compose.OverridePaths, 1)
+	assert.Equal(t, configMigrationOverride, filepath.Base(compose.OverridePaths[0]))
+	assert.Contains(t, compose.Env, "OBI_CONFIG_MIGRATION_SOURCE=obi-config.yml")
+	assert.Contains(t, compose.Env, "OBI_CONFIG_MIGRATION_OUTPUT=obi-config-v2.yml")
+	assert.Contains(t, compose.Env, "OBI_CONFIG_MIGRATION_IMAGE=hatest-obi")
 }
