@@ -75,6 +75,9 @@ attributes:
   # Mirrors `NetworkTCPHandshakeRoleType` in
   # `pkg/internal/statsolly/ebpf/stat.go`, for the socket traffic metrics.
   - key: network.connection.role
+    annotations:
+      obi:
+        upstream_deviation: upstream defines no client or server role of a connection
     type:
       members:
         - id: client
@@ -110,6 +113,9 @@ attributes:
       `dst.address` is then the address after NAT.
     examples: ["10.96.0.10"]
   - key: server.pre_nat.port
+    annotations:
+      obi:
+        upstream_deviation: upstream defines no address translation attributes
     type: int
     stability: development
     brief: >
@@ -120,6 +126,9 @@ attributes:
     examples: [8044]
   # Mirrors Datadog's IntraHost.
   - key: network.peer.same_host
+    annotations:
+      obi:
+        upstream_deviation: upstream defines no attribute telling whether the peer is on the same host
     type: boolean
     stability: development
     brief: >
@@ -197,6 +206,9 @@ attributes:
   # `pkg/internal/statsolly/ebpf/stat.go`. Derived from the socket's
   # congestion state (`icsk_ca_state`) when the retransmission happens.
   - key: network.tcp.retransmit.type
+    annotations:
+      obi:
+        upstream_deviation: upstream defines no TCP retransmit attributes
     type:
       members:
         - id: timeout
@@ -217,6 +229,9 @@ attributes:
   # Mirrors `NetworkTCPFlowControlEventType` in
   # `pkg/internal/statsolly/ebpf/stat.go`.
   - key: network.tcp.flow_control.event
+    annotations:
+      obi:
+        upstream_deviation: upstream defines no TCP flow control attributes
     type:
       members:
         - id: zero_window
@@ -232,6 +247,9 @@ attributes:
   # Mirrors `NetworkTCPCongestionEventType` in
   # `pkg/internal/statsolly/ebpf/stat.go`.
   - key: network.tcp.congestion.event
+    annotations:
+      obi:
+        upstream_deviation: upstream defines no TCP congestion attributes
     type:
       members:
         - id: rto
@@ -252,6 +270,9 @@ attributes:
   # `pkg/internal/statsolly/ebpf/stat_getters.go`. There is no semantic
   # convention for the question type yet.
   - key: dns.question.type
+    annotations:
+      obi:
+        upstream_deviation: upstream defines the DNS question name but no question type
     type: string
     stability: development
     brief: >
