@@ -12,8 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"go.opentelemetry.io/collector/consumer"
-
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 )
@@ -23,9 +21,9 @@ func tlog() *slog.Logger {
 }
 
 type TracesConfig struct {
-	TracesConsumer consumer.Traces `yaml:"-"`
-	CommonEndpoint string          `yaml:"-" env:"OTEL_EXPORTER_OTLP_ENDPOINT" jsonschema:"format=uri"`
-	TracesEndpoint string          `yaml:"endpoint" env:"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT" jsonschema:"format=uri"`
+	TracesExport   TracesExportFunc `yaml:"-"`
+	CommonEndpoint string           `yaml:"-" env:"OTEL_EXPORTER_OTLP_ENDPOINT" jsonschema:"format=uri"`
+	TracesEndpoint string           `yaml:"endpoint" env:"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT" jsonschema:"format=uri"`
 
 	Protocol       Protocol `yaml:"protocol" env:"OTEL_EXPORTER_OTLP_PROTOCOL"`
 	TracesProtocol Protocol `yaml:"-" env:"OTEL_EXPORTER_OTLP_TRACES_PROTOCOL"`
@@ -36,6 +34,9 @@ type TracesConfig struct {
 
 	// Allows configuration of which instrumentations should be enabled, e.g. http, grpc, sql...
 	Instrumentations []instrumentations.Instrumentation `yaml:"instrumentations" env:"OTEL_EBPF_TRACES_INSTRUMENTATIONS" envSeparator:"," jsonschema:"uniqueItems=true"`
+
+	// Config v2 control; the zero value preserves the existing request phase spans.
+	DisableHTTPRequestPhaseSpans bool `yaml:"-" env:"-"`
 
 	// InsecureSkipVerify enables skipping TLS certificate verification (not standard, so we don't follow the same naming convention)
 	InsecureSkipVerify bool `yaml:"insecure_skip_verify" env:"OTEL_EBPF_INSECURE_SKIP_VERIFY"`
@@ -107,7 +108,7 @@ func (m TracesConfig) MarshalYAML() (any, error) {
 // either the OTEL endpoint and OTEL traces endpoint is defined.
 // If not enabled, this node won't be instantiated
 func (m *TracesConfig) Enabled() bool {
-	if m.TracesConsumer != nil {
+	if m.TracesExport != nil {
 		return true
 	}
 
@@ -120,7 +121,7 @@ func (m *TracesConfig) Enabled() bool {
 }
 
 func (m *TracesConfig) GetProtocol() Protocol {
-	if m.TracesConsumer != nil {
+	if m.TracesExport != nil {
 		return ProtocolUnset
 	}
 	if m.TracesProtocol != "" {

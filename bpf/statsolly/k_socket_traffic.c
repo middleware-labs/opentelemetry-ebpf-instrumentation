@@ -14,7 +14,10 @@
 
 #include <logger/bpf_dbg.h>
 
+#include <statsolly/handshake_role.h>
 #include <statsolly/inet_sock_set_state.h>
+#include <statsolly/ringbuf_flags.h>
+#include <statsolly/sock_netns.h>
 #include <statsolly/tcp_counters.h>
 #include <statsolly/tcp_failure.h>
 #include <statsolly/types.h>
@@ -27,7 +30,6 @@
 #include <statsolly/maps/socket_traffic_retransmit.h>
 #include <statsolly/maps/socket_traffic_sendmsg_sock.h>
 #include <statsolly/maps/socket_traffic_udp_dport.h>
-#include <statsolly/maps/stats_events.h>
 #include <statsolly/maps/udp_port_bindings.h>
 
 // Bytes and packets per socket, counted where the application sends and reads them, with
@@ -329,8 +331,8 @@ static __always_inline socket_traffic_t *tcp_event_row(struct sock *const sk) {
 }
 
 // A failed connection is counted on its row, like Datadog's handle_tcp_failure: a refused
-// connect creates it. Its role and process are still known: this program runs before the ones
-// that delete sock_role and sock_owner at TCP_CLOSE.
+// connect creates it. Its process is still known: this program runs before the one that
+// deletes sock_owner at TCP_CLOSE.
 static __always_inline void
 count_tcp_failure(struct sock *const sk,
                   const struct trace_event_raw_inet_sock_set_state *const args) {
@@ -348,7 +350,7 @@ count_tcp_failure(struct sock *const sk,
         return;
     }
     if (row->role == role_unknown) {
-        row->role = closing_sock_role(sk, args);
+        row->role = failed_connection_role(args->oldstate, tcp_role(sk));
     }
     row->fail_reason = reason;
     row->failures++;

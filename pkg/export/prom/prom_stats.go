@@ -41,6 +41,7 @@ type statMetricsReporter struct {
 	tcpRetransmits           *Expirer[prometheus.Counter]
 	tcpIo                    *Expirer[prometheus.Counter]
 	tcpSuccessfulConnections *Expirer[prometheus.Counter]
+	tcpResets                *Expirer[prometheus.Counter]
 	tcpClosedConnections     *Expirer[prometheus.Counter]
 	tcpFlowControl           *Expirer[prometheus.Counter]
 	tcpECNCEPackets          *Expirer[prometheus.Counter]
@@ -58,6 +59,7 @@ type statMetricsReporter struct {
 	tcpRetransmitsAttrs           []attributes.Field[*ebpf.Stat, string]
 	tcpIoAttrs                    []attributes.Field[*ebpf.Stat, string]
 	tcpSuccessfulConnectionsAttrs []attributes.Field[*ebpf.Stat, string]
+	tcpResetsAttrs                []attributes.Field[*ebpf.Stat, string]
 	tcpClosedConnectionsAttrs     []attributes.Field[*ebpf.Stat, string]
 	tcpFlowControlAttrs           []attributes.Field[*ebpf.Stat, string]
 	tcpECNCEPacketsAttrs          []attributes.Field[*ebpf.Stat, string]
@@ -84,9 +86,6 @@ func StatsPrometheusEndpoint(
 		reporter, err := newStatsReporter(ctxInfo, cfg, input)
 		if err != nil {
 			return nil, err
-		}
-		if cfg.Config.Registry != nil {
-			return reporter.collectMetrics, nil
 		}
 		return reporter.reportMetrics, nil
 	}
@@ -295,11 +294,22 @@ func newStatsReporter(
 		register = append(register, mr.socketPackets)
 	}
 
-	if cfg.Config.Registry != nil {
-		cfg.Config.Registry.MustRegister(register...)
-	} else {
-		mr.promConnect.Register(cfg.Config.Port, cfg.Config.Path, register...)
+	if cfg.CommonCfg.Features.StatsTCPResets() {
+		log.Debug("registering stat tcp resets metric")
+
+		mr.tcpResetsAttrs = attributes.PrometheusGetters(
+			ebpf.StatStringGetters,
+			provider.For(attributes.StatTCPResets))
+
+		mr.tcpResets = NewExpirer[prometheus.Counter](prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: attributes.StatTCPResets.Prom,
+			Help: "counts the TCP RST segments sent or received outside connection establishment",
+		}, labelNames(mr.tcpResetsAttrs)).MetricVec, timeNow, cfg.Config.TTL)
+
+		register = append(register, mr.tcpResets)
 	}
+
+	mr.promConnect.Register(cfg.Config.Port, cfg.Config.Path, register...)
 
 	mr.input = input.Subscribe(msg.SubscriberName("prom.StatsReporterInput"))
 	return mr, nil
@@ -319,6 +329,7 @@ func (r *statMetricsReporter) collectMetrics(_ context.Context) {
 			r.observeTCPClosedConnections(stat)
 			r.observeTCPRetransmits(stat)
 			r.observeTCPIo(stat)
+			r.observeTCPResets(stat)
 			r.observeTCPFlowControl(stat)
 			r.observeTCPCongestion(stat)
 			r.observeTCPCongestionEvents(stat)
@@ -447,4 +458,12 @@ func (r *statMetricsReporter) observeSocketTraffic(stat *ebpf.Stat) {
 		c.expirer.WithLabelValues(labelValues(stat, c.attrs)...).
 			Metric.Add(float64(c.value))
 	}
+}
+
+func (r *statMetricsReporter) observeTCPResets(stat *ebpf.Stat) {
+	if r.tcpResets == nil || stat.TCPReset == nil {
+		return
+	}
+	r.tcpResets.WithLabelValues(labelValues(stat, r.tcpResetsAttrs)...).
+		Metric.Add(1)
 }

@@ -13,10 +13,11 @@
 #include <common/sockaddr.h>
 
 #include <statsolly/exe_name.h>
+#include <statsolly/sock_netns.h>
 
-// The process of a TCP socket, added to each TCP stat event. Many of them run where the current
-// task is not the application (softirq, timers): handshakes, retransmits, zero window probes.
-// The cgroup ID is split because the stat events are only 4-byte aligned.
+// The process of a TCP socket, for the socket traffic rows updated where the current task is not
+// the application (softirq, timers): handshakes, retransmits, zero window probes.
+// The cgroup ID is split to keep the struct 4-byte aligned.
 typedef struct sock_owner {
     u32 pid;
     u32 netns; // of the socket, to find the other side of a loopback connection
@@ -198,17 +199,4 @@ static __always_inline const sock_owner_t *find_sock_owner(struct sock *sk) {
         return &local->owner;
     }
     return listener ? &listener->owner : NULL;
-}
-
-// Fills the process of the socket of a stat event, zero when unknown
-static __always_inline void read_sock_owner(struct sock *const sk, sock_owner_t *const out) {
-    __builtin_memset(out, 0, sizeof(*out));
-    if (!stats_sock_owner_enabled) {
-        return;
-    }
-    const sock_owner_t *const owner = find_sock_owner(sk);
-    if (owner) {
-        *out = *owner;
-    }
-    out->netns = sock_netns(sk);
 }

@@ -24,18 +24,15 @@ func TestFixupSpec(t *testing.T) {
 	const origTpName = "real_tp"
 	const origConnRoleName = "real_conn_role"
 	const origSuccessTpName = "real_success_tp"
-	const origClosedTpName = "real_closed_tp"
-	const origSendProbe0Name = "real_send_probe0"
-	const origSendmsgCongestionName = "real_sendmsg_congestion"
-	const origCleanupRbufCongestionName = "real_cleanup_rbuf_congestion"
-	const origCloseCongestionName = "real_close_congestion"
-	const origSocketDNSName = "real_socket_dns"
 
 	const origSendmsgName = "real_sendmsg"
 	const origRetprobeSendmsgName = "real_retprobe_sendmsg"
 	const origCleanupRbufName = "real_cleanup_rbuf"
 	const origCloseIoFlushName = "real_close_io_flush"
+	const origDestroySockName = "real_destroy_sock"
 	const origRetransmitName = "real_retransmit"
+	const origSendResetName = "real_send_reset"
+	const origReceiveResetName = "real_receive_reset"
 
 	makeSpec := func() *ebpf.CollectionSpec {
 		return &ebpf.CollectionSpec{
@@ -44,17 +41,14 @@ func TestFixupSpec(t *testing.T) {
 				progObiStatsTpInetSockSetStateTCPFailedConnection:     {Name: origTpName, Type: ebpf.TracePoint},
 				progObiStatsTpInetSockSetStateConnRole:                {Name: origConnRoleName, Type: ebpf.TracePoint},
 				progObiStatsTpInetSockSetStateTCPSuccessfulConnection: {Name: origSuccessTpName, Type: ebpf.TracePoint},
-				progObiStatsTpInetSockSetStateTCPClosedConnection:     {Name: origClosedTpName, Type: ebpf.TracePoint},
 				progObiStatsKprobeTCPSendmsg:                          {Name: origSendmsgName, Type: ebpf.Kprobe},
 				progObiStatsKretprobeTCPSendmsg:                       {Name: origRetprobeSendmsgName, Type: ebpf.Kprobe},
 				progObiStatsKprobeTCPCleanupRbuf:                      {Name: origCleanupRbufName, Type: ebpf.Kprobe},
 				progObiStatsKprobeTCPCloseIoFlush:                     {Name: origCloseIoFlushName, Type: ebpf.Kprobe},
+				progObiStatsTpTCPDestroySock:                          {Name: origDestroySockName, Type: ebpf.TracePoint},
 				progObiStatsRawTpTCPRetransmitSkb:                     {Name: origRetransmitName, Type: ebpf.RawTracepoint},
-				progObiStatsKprobeTCPSendProbe0:                       {Name: origSendProbe0Name, Type: ebpf.Kprobe},
-				progObiStatsKprobeTCPSendmsgCongestion:                {Name: origSendmsgCongestionName, Type: ebpf.Kprobe},
-				progObiStatsKprobeTCPCleanupRbufCongestion:            {Name: origCleanupRbufCongestionName, Type: ebpf.Kprobe},
-				progObiStatsKprobeTCPCloseCongestion:                  {Name: origCloseCongestionName, Type: ebpf.Kprobe},
-				progObiStatsSocketDNS:                                 {Name: origSocketDNSName, Type: ebpf.SocketFilter},
+				progObiStatsRawTpTCPSendReset:                         {Name: origSendResetName, Type: ebpf.RawTracepoint},
+				progObiStatsRawTpTCPReceiveReset:                      {Name: origReceiveResetName, Type: ebpf.RawTracepoint},
 			},
 		}
 	}
@@ -72,16 +66,14 @@ func TestFixupSpec(t *testing.T) {
 				progObiStatsTpInetSockSetStateTCPFailedConnection:     origTpName,
 				progObiStatsTpInetSockSetStateConnRole:                origConnRoleName,
 				progObiStatsTpInetSockSetStateTCPSuccessfulConnection: origSuccessTpName,
-				progObiStatsTpInetSockSetStateTCPClosedConnection:     origClosedTpName,
 				progObiStatsKprobeTCPSendmsg:                          origSendmsgName,
 				progObiStatsKretprobeTCPSendmsg:                       origRetprobeSendmsgName,
 				progObiStatsKprobeTCPCleanupRbuf:                      origCleanupRbufName,
 				progObiStatsKprobeTCPCloseIoFlush:                     origCloseIoFlushName,
+				progObiStatsTpTCPDestroySock:                          origDestroySockName,
 				progObiStatsRawTpTCPRetransmitSkb:                     origRetransmitName,
-				progObiStatsKprobeTCPSendProbe0:                       origSendProbe0Name,
-				progObiStatsKprobeTCPSendmsgCongestion:                origSendmsgCongestionName,
-				progObiStatsKprobeTCPCleanupRbufCongestion:            origCleanupRbufCongestionName,
-				progObiStatsKprobeTCPCloseCongestion:                  origCloseCongestionName,
+				progObiStatsRawTpTCPSendReset:                         origSendResetName,
+				progObiStatsRawTpTCPReceiveReset:                      origReceiveResetName,
 			},
 		},
 		{
@@ -129,49 +121,12 @@ func TestFixupSpec(t *testing.T) {
 			},
 		},
 		{
-			name:      "disable closed conn only",
-			toDisable: []string{progObiStatsTpInetSockSetStateTCPClosedConnection},
+			name:      "disable resets only",
+			toDisable: []string{progObiStatsRawTpTCPSendReset, progObiStatsRawTpTCPReceiveReset},
 			want: map[string]string{
-				progObiStatsTpInetSockSetStateTCPClosedConnection:     "stats_dummy",
-				progObiStatsTpInetSockSetStateTCPFailedConnection:     origTpName,
-				progObiStatsTpInetSockSetStateTCPSuccessfulConnection: origSuccessTpName,
-				progObiStatsTpInetSockSetStateConnRole:                origConnRoleName,
-			},
-		},
-		{
-			name:      "disable dns lookups only",
-			toDisable: []string{progObiStatsSocketDNS},
-			want: map[string]string{
-				progObiStatsSocketDNS:                             "stats_dummy",
-				progObiStatsTpInetSockSetStateTCPFailedConnection: origTpName,
-				progObiStatsKprobeTCPCloseSrtt:                    origKpName,
-			},
-		},
-		{
-			name:      "disable flow control only",
-			toDisable: []string{progObiStatsKprobeTCPSendProbe0},
-			want: map[string]string{
-				progObiStatsKprobeTCPSendProbe0:   "stats_dummy",
-				progObiStatsKprobeTCPCloseSrtt:    origKpName,
+				progObiStatsRawTpTCPSendReset:     "stats_dummy",
+				progObiStatsRawTpTCPReceiveReset:  "stats_dummy",
 				progObiStatsRawTpTCPRetransmitSkb: origRetransmitName,
-			},
-		},
-		{
-			// the congestion programs share hooks with the io and srtt programs, which must stay loaded
-			name: "disable congestion only",
-			toDisable: []string{
-				progObiStatsKprobeTCPSendmsgCongestion,
-				progObiStatsKprobeTCPCleanupRbufCongestion,
-				progObiStatsKprobeTCPCloseCongestion,
-			},
-			want: map[string]string{
-				progObiStatsKprobeTCPSendmsgCongestion:     "stats_dummy",
-				progObiStatsKprobeTCPCleanupRbufCongestion: "stats_dummy",
-				progObiStatsKprobeTCPCloseCongestion:       "stats_dummy",
-				progObiStatsKprobeTCPSendmsg:               origSendmsgName,
-				progObiStatsKprobeTCPCleanupRbuf:           origCleanupRbufName,
-				progObiStatsKprobeTCPCloseSrtt:             origKpName,
-				progObiStatsKprobeTCPCloseIoFlush:          origCloseIoFlushName,
 			},
 		},
 		{
@@ -200,33 +155,29 @@ func TestFixupSpec(t *testing.T) {
 				progObiStatsKprobeTCPCloseSrtt,
 				progObiStatsTpInetSockSetStateTCPFailedConnection,
 				progObiStatsTpInetSockSetStateTCPSuccessfulConnection,
-				progObiStatsTpInetSockSetStateTCPClosedConnection,
 				progObiStatsTpInetSockSetStateConnRole,
 				progObiStatsKprobeTCPSendmsg,
 				progObiStatsKretprobeTCPSendmsg,
 				progObiStatsKprobeTCPCleanupRbuf,
 				progObiStatsKprobeTCPCloseIoFlush,
+				progObiStatsTpTCPDestroySock,
 				progObiStatsRawTpTCPRetransmitSkb,
-				progObiStatsKprobeTCPSendProbe0,
-				progObiStatsKprobeTCPSendmsgCongestion,
-				progObiStatsKprobeTCPCleanupRbufCongestion,
-				progObiStatsKprobeTCPCloseCongestion,
+				progObiStatsRawTpTCPSendReset,
+				progObiStatsRawTpTCPReceiveReset,
 			},
 			want: map[string]string{
 				progObiStatsKprobeTCPCloseSrtt:                        "stats_dummy",
 				progObiStatsTpInetSockSetStateTCPFailedConnection:     "stats_dummy",
 				progObiStatsTpInetSockSetStateTCPSuccessfulConnection: "stats_dummy",
-				progObiStatsTpInetSockSetStateTCPClosedConnection:     "stats_dummy",
 				progObiStatsTpInetSockSetStateConnRole:                "stats_dummy",
 				progObiStatsKprobeTCPSendmsg:                          "stats_dummy",
 				progObiStatsKretprobeTCPSendmsg:                       "stats_dummy",
 				progObiStatsKprobeTCPCleanupRbuf:                      "stats_dummy",
 				progObiStatsKprobeTCPCloseIoFlush:                     "stats_dummy",
+				progObiStatsTpTCPDestroySock:                          "stats_dummy",
 				progObiStatsRawTpTCPRetransmitSkb:                     "stats_dummy",
-				progObiStatsKprobeTCPSendProbe0:                       "stats_dummy",
-				progObiStatsKprobeTCPSendmsgCongestion:                "stats_dummy",
-				progObiStatsKprobeTCPCleanupRbufCongestion:            "stats_dummy",
-				progObiStatsKprobeTCPCloseCongestion:                  "stats_dummy",
+				progObiStatsRawTpTCPSendReset:                         "stats_dummy",
+				progObiStatsRawTpTCPReceiveReset:                      "stats_dummy",
 			},
 		},
 	}
@@ -262,6 +213,7 @@ func TestFixupSpecUnknownProgram(t *testing.T) {
 func TestTracepointConstantFormat(t *testing.T) {
 	hooks := []string{
 		TracepointInetSockSetState,
+		TracepointTCPDestroySock,
 	}
 	for _, hook := range hooks {
 		if _, _, ok := strings.Cut(hook, "/"); !ok {
@@ -270,13 +222,15 @@ func TestTracepointConstantFormat(t *testing.T) {
 	}
 }
 
-// TestInetSockSetStateProbesOrder checks that every probe reading sock_role and sock_owner is
-// attached before conn_role and sock_owner, which delete the entries on the same TCP_CLOSE event.
+// TestInetSockSetStateProbesOrder checks the attach order of the programs that share sock_role and
+// sock_owner: the TCP row program reads sock_owner before the sock_owner program deletes it on the
+// same TCP_CLOSE event, and the sock_role delete is attached before the program that writes it.
 func TestInetSockSetStateProbesOrder(t *testing.T) {
 	objects := &StatsObjects{StatsPrograms: StatsPrograms{
+		ObiStatsTpInetSockSetStateTcpRow:                  &ebpf.Program{},
 		ObiStatsTpInetSockSetStateTcpSuccessfulConnection: &ebpf.Program{},
 		ObiStatsTpInetSockSetStateTcpFailedConnection:     &ebpf.Program{},
-		ObiStatsTpInetSockSetStateTcpClosedConnection:     &ebpf.Program{},
+		ObiStatsTpTcpDestroySock:                          &ebpf.Program{},
 		ObiStatsTpInetSockSetStateConnRole:                &ebpf.Program{},
 		ObiStatsTpInetSockSetStateSockOwner:               &ebpf.Program{},
 	}}
@@ -284,37 +238,12 @@ func TestInetSockSetStateProbesOrder(t *testing.T) {
 
 	position := map[*ebpf.Program]int{}
 	for i, p := range inetSockSetStateProbes(objects, &features, true, true, true) {
-		assert.Equal(t, TracepointInetSockSetState, p.name)
 		assert.True(t, p.enabled)
 		position[p.program] = i
 	}
 
-	connRole := position[objects.ObiStatsTpInetSockSetStateConnRole]
-	assert.Less(t, position[objects.ObiStatsTpInetSockSetStateTcpFailedConnection], connRole)
-	assert.Less(t, position[objects.ObiStatsTpInetSockSetStateTcpClosedConnection], connRole)
-
-	// sock_owner is deleted on the same TCP_CLOSE event too
-	sockOwner := position[objects.ObiStatsTpInetSockSetStateSockOwner]
-	assert.Less(t, position[objects.ObiStatsTpInetSockSetStateTcpFailedConnection], sockOwner)
-	assert.Less(t, position[objects.ObiStatsTpInetSockSetStateTcpClosedConnection], sockOwner)
-}
-
-func TestInetSockSetStateProbesClosedFeature(t *testing.T) {
-	objects := &StatsObjects{StatsPrograms: StatsPrograms{
-		ObiStatsTpInetSockSetStateTcpClosedConnection: &ebpf.Program{},
-	}}
-	closedEnabled := func(features export.Features) bool {
-		for _, p := range inetSockSetStateProbes(objects, &features, false, false, false) {
-			if p.program == objects.ObiStatsTpInetSockSetStateTcpClosedConnection {
-				return p.enabled
-			}
-		}
-		return false
-	}
-
-	assert.True(t, closedEnabled(export.FeatureStats))
-	assert.True(t, closedEnabled(export.FeatureStatsTCPClosedConnections))
-	assert.False(t, closedEnabled(export.FeatureStatsTCPFailedConnections))
+	assert.Less(t, position[objects.ObiStatsTpTcpDestroySock], position[objects.ObiStatsTpInetSockSetStateConnRole])
+	assert.Less(t, position[objects.ObiStatsTpInetSockSetStateTcpRow], position[objects.ObiStatsTpInetSockSetStateSockOwner])
 }
 
 func TestStatsSpecDNSSocketFilter(t *testing.T) {

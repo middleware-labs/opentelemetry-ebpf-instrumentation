@@ -400,7 +400,7 @@ static __always_inline void populate_dns_record(dns_req_t *req,
     if (found) {
         urand_bytes(req->tp.span_id, SPAN_ID_SIZE_BYTES);
     } else {
-        init_new_trace(&req->tp);
+        init_new_trace_for_pid(&req->tp, &conn_pid->p_info);
     }
 }
 
@@ -469,10 +469,10 @@ static __always_inline u8 handle_dns(struct __sk_buff *skb,
 
         if (req) {
             u32 len = skb->len - dns_off;
-            bpf_clamp_umax(len, 512);
+            bpf_clamp_umax(len, k_dns_max_len);
             populate_dns_record(req, &p_conn, orig_dport, len, qr, hdr.id, conn_pid);
 
-            read_skb_bytes(skb, dns_off, req->buf, len);
+            read_skb_bytes(skb, dns_off, req->buf, len, k_dns_max_len);
             bpf_d_printk("sending dns trace [%s]", __FUNCTION__);
             bpf_ringbuf_submit(req, get_flags());
         }

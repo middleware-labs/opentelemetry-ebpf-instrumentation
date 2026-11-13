@@ -136,6 +136,8 @@ func StatGetters(name attr.Name) (attributes.Getter[*Stat, attribute.KeyValue], 
 				direction = s.TCPIo.Direction
 			case s.SocketTraffic != nil:
 				direction = s.SocketTraffic.Direction
+			case s.TCPReset != nil:
+				direction = s.TCPReset.Direction
 			}
 			return attribute.String(string(attr.NetworkIoDirection), networkIoDirectionStr(NetworkIoDirectionCode(direction)))
 		}
@@ -181,7 +183,18 @@ func StatGetters(name attr.Name) (attributes.Getter[*Stat, attribute.KeyValue], 
 			}
 			return attribute.String(string(attr.DNSQuestionType), qtype)
 		}
-
+	case attr.NetworkTCPResetCause:
+		getter = func(s *Stat) attribute.KeyValue {
+			if s.TCPReset == nil {
+				return attribute.KeyValue{}
+			}
+			// the cause is only set when it can be inferred
+			cause, ok := tcpResetCauseStr(TCPResetCauseCode(s.TCPReset.Cause))
+			if !ok {
+				return attribute.KeyValue{}
+			}
+			return attribute.String(string(attr.NetworkTCPResetCause), cause)
+		}
 	default:
 		if value, ok := processGetter(name); ok {
 			getter = func(s *Stat) attribute.KeyValue { return attribute.String(string(name), value(s)) }
@@ -235,7 +248,8 @@ func (s *Stat) Endpoints() Endpoints {
 func StatStringGetters(name attr.Name) (attributes.Getter[*Stat, string], bool) {
 	if g, ok := StatGetters(name); ok {
 		return func(s *Stat) string {
-			// an omitted (invalid) attribute is an empty label, not Value.Emit()'s "unknown"
+			// an invalid KeyValue means "omit this attribute": map it to the empty
+			// label value rather than Value.Emit()'s "unknown" placeholder
 			if kv := g(s); kv.Valid() {
 				return kv.Value.Emit()
 			}
@@ -340,4 +354,15 @@ func networkIoDirectionStr(d NetworkIoDirectionCode) string {
 		return string(DirectionReceive)
 	}
 	return ""
+}
+
+func tcpResetCauseStr(c TCPResetCauseCode) (string, bool) {
+	switch c {
+	case CodeResetCauseApplication:
+		return string(ResetCauseApplication), true
+	case CodeResetCauseTimeout:
+		return string(ResetCauseTimeout), true
+	default:
+		return "", false
+	}
 }

@@ -154,6 +154,8 @@ var OBIIP = Name("obi.ip")
 // otherwise.
 var OBIHTTPResponseObserved = Name("obi.http.response.observed")
 
+var OBIRequestPhase = Name("obi.request.phase")
+
 const (
 	Transport       = Name("transport")
 	NetworkType     = Name(semconv.NetworkTypeKey)
@@ -330,6 +332,7 @@ const (
 	GenAIToolCallResult    = Name(semconv.GenAIToolCallResultKey)
 	GenAIPromptName        = Name(semconv.GenAIPromptNameKey)
 	GenAIResponseError     = Name("gen_ai.response.error")
+	OpenAIRequestQuestions = Name("openai.request.questions")
 )
 
 // OBI specific GPU events
@@ -398,6 +401,7 @@ const (
 	NetworkTCPFlowControlEvent = Name("network.tcp.flow_control.event")
 	NetworkTCPCongestionEvent  = Name("network.tcp.congestion.event")
 	NetworkIoDirection         = Name(semconv.NetworkIODirectionKey)
+	NetworkTCPResetCause       = Name("network.tcp.reset.cause")
 	// NetworkTransport is the OTel name, used by the socket traffic metrics. The network flow
 	// metrics keep their own Transport attribute.
 	NetworkTransport = Name(semconv.NetworkTransportKey)

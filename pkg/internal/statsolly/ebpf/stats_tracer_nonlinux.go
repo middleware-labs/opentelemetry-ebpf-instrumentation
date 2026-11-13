@@ -47,10 +47,6 @@ func (m *StatsFetcher) SocketTrafficDropsMap() *ciliumebpf.Map {
 	return nil
 }
 
-func (m *StatsFetcher) EndpointOwnerMap() *ciliumebpf.Map {
-	return nil
-}
-
 func (m *StatsFetcher) NATTranslationsMap() *ciliumebpf.Map {
 	return nil
 }

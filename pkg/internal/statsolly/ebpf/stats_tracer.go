@@ -15,7 +15,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/asm"
@@ -41,18 +40,16 @@ type probe struct {
 const (
 	progObiStatsKprobeTCPCloseSrtt                        = "obi_stats_kprobe_tcp_close_srtt"
 	progObiStatsKprobeTCPCloseIoFlush                     = "obi_stats_kprobe_tcp_close_io_flush"
+	progObiStatsTpTCPDestroySock                          = "obi_stats_tp_tcp_destroy_sock"
 	progObiStatsTpInetSockSetStateConnRole                = "obi_stats_tp_inet_sock_set_state_conn_role"
 	progObiStatsTpInetSockSetStateTCPFailedConnection     = "obi_stats_tp_inet_sock_set_state_tcp_failed_connection"
 	progObiStatsTpInetSockSetStateTCPSuccessfulConnection = "obi_stats_tp_inet_sock_set_state_tcp_successful_connection"
-	progObiStatsTpInetSockSetStateTCPClosedConnection     = "obi_stats_tp_inet_sock_set_state_tcp_closed_connection"
 	progObiStatsRawTpTCPRetransmitSkb                     = "obi_stats_raw_tp_tcp_retransmit_skb"
+	progObiStatsRawTpTCPSendReset                         = "obi_stats_raw_tp_tcp_send_reset"
+	progObiStatsRawTpTCPReceiveReset                      = "obi_stats_raw_tp_tcp_receive_reset"
 	progObiStatsKprobeTCPSendmsg                          = "obi_stats_kprobe_tcp_sendmsg"
 	progObiStatsKretprobeTCPSendmsg                       = "obi_stats_kretprobe_tcp_sendmsg"
 	progObiStatsKprobeTCPCleanupRbuf                      = "obi_stats_kprobe_tcp_cleanup_rbuf"
-	progObiStatsKprobeTCPSendProbe0                       = "obi_stats_kprobe_tcp_send_probe0"
-	progObiStatsKprobeTCPSendmsgCongestion                = "obi_stats_kprobe_tcp_sendmsg_congestion"
-	progObiStatsKprobeTCPCleanupRbufCongestion            = "obi_stats_kprobe_tcp_cleanup_rbuf_congestion"
-	progObiStatsKprobeTCPCloseCongestion                  = "obi_stats_kprobe_tcp_close_congestion"
 	progObiStatsSocketDNS                                 = "obi_stats_socket_dns"
 	progObiStatsKprobeTCPSendmsgTraffic                   = "obi_stats_kprobe_tcp_sendmsg_traffic"
 	progObiStatsKretprobeTCPSendmsgTraffic                = "obi_stats_kretprobe_tcp_sendmsg_traffic"
@@ -97,10 +94,6 @@ const (
 // the bytes of the calls beyond it, e.g. threads sleeping in tcp_sendmsg for socket memory.
 const socketTrafficRetprobeMaxActive = 128
 
-// congestionMinInterval is the minimum time between two congestion events of the same socket.
-// Counter increases in between are not lost: they are sent with the next event or at close.
-const congestionMinInterval = time.Second
-
 // Hook point names, grouped by attach type.
 const (
 	// Kprobes: kernel function names.
@@ -138,20 +131,21 @@ const (
 
 	// Tracepoints: group/name, are validated by TestTracepointConstantFormat
 	TracepointInetSockSetState = "sock/inet_sock_set_state"
+	TracepointTCPDestroySock   = "tcp/tcp_destroy_sock"
 
 	// Raw tracepoints: name only (no group prefix).
 	RawTracepointTCPRetransmitSkb = "tcp_retransmit_skb"
+	RawTracepointTCPSendReset     = "tcp_send_reset"
+	RawTracepointTCPReceiveReset  = "tcp_receive_reset"
 )
 
 // $BPF_CLANG and $BPF_CFLAGS are set by the Makefile.
-//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -type stat_type -type tcp_fail_reason -type tcp_handshake_role -type tcp_retransmit_type -type tcp_flow_control_event -type tcp_congestion_event -type network_io_direction -type tcp_io_t -type tcp_rtt_t -type tcp_failed_connection_t -type tcp_retransmit_t -type tcp_successful_connection_t -type tcp_closed_connection_t -type tcp_flow_control_t -type tcp_congestion_t -type tcp_cong_vals_t -type dns_packet_t -type socket_traffic_key_t -type socket_traffic_t -type socket_traffic_closed_t -type socket_traffic_drop -type sock_owner_t -type endpoint_key_t -type endpoint_owner_t -type nat_translation_t -target $BPF_TARGETS Stats ../../../../bpf/statsolly/stats.c -- -I../../../../bpf
+//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -type stat_type -type tcp_fail_reason -type tcp_handshake_role -type tcp_retransmit_type -type tcp_flow_control_event -type tcp_congestion_event -type network_io_direction -type tcp_reset_cause -type tcp_io_t -type tcp_rtt_t -type tcp_failed_connection_t -type tcp_retransmit_t -type tcp_successful_connection_t -type tcp_reset_t -type dns_packet_t -type socket_traffic_key_t -type socket_traffic_t -type socket_traffic_closed_t -type socket_traffic_drop -type sock_owner_t -type endpoint_key_t -type endpoint_owner_t -type nat_translation_t -target $BPF_TARGETS Stats ../../../../bpf/statsolly/stats.c -- -I../../../../bpf
 
 type StatsFetcher struct {
 	log       *slog.Logger
 	objects   *StatsObjects
 	closables []io.Closer
-	// sockOwners is true when the TCP stat events carry the process of their socket
-	sockOwners bool
 	// natTranslations is true when the conntrack probes fill the NAT translations
 	natTranslations bool
 }
@@ -160,8 +154,9 @@ func tlog() *slog.Logger {
 	return slog.With("component", "ebpf.StatFetcher")
 }
 
-// NewStatsFetcher loads and attaches the stats programs. With sockOwners, the TCP stat events
-// carry the process of their socket: a process or container attribute of the TCP stats is selected.
+// NewStatsFetcher loads and attaches the stats programs. With sockOwners, the socket traffic rows
+// updated in softirq or timers take the process of their socket: a process or container attribute
+// of the stats is selected.
 // seedUDPPorts adds to the udp_port_bindings map the UDP ports bound before OBI started. With nat,
 // the conntrack probes fill the NAT translations of the socket traffic rows.
 func NewStatsFetcher(
@@ -231,9 +226,8 @@ func NewStatsFetcher(
 		socketTraffic.ConnectionRollup
 	udpRoleUsed := socketTrafficUDP && socketTrafficRoleSelected
 
-	connRoleUsed := ((events.StatsTCPFailedConnections() || events.StatsTCPClosedConnections() || events.StatsTCPRtt() ||
-		events.StatsTCPRetransmits() || events.StatsTCPIo() ||
-		events.StatsTCPFlowControl() || events.StatsTCPCongestion()) && connRoleAttrSelected) ||
+	connRoleUsed := ((events.StatsTCPFailedConnections() || events.StatsTCPRtt() ||
+		events.StatsTCPRetransmits() || events.StatsTCPIo()) && connRoleAttrSelected) ||
 		(socketTrafficTCP && socketTrafficRoleSelected)
 
 	var toDisable []string
@@ -243,11 +237,8 @@ func NewStatsFetcher(
 	if !events.StatsTCPSuccessfulConnections() {
 		toDisable = append(toDisable, progObiStatsTpInetSockSetStateTCPSuccessfulConnection)
 	}
-	if !events.StatsTCPClosedConnections() {
-		toDisable = append(toDisable, progObiStatsTpInetSockSetStateTCPClosedConnection)
-	}
 	if !connRoleUsed {
-		toDisable = append(toDisable, progObiStatsTpInetSockSetStateConnRole)
+		toDisable = append(toDisable, progObiStatsTpInetSockSetStateConnRole, progObiStatsTpTCPDestroySock)
 	}
 	if !events.StatsTCPRtt() {
 		toDisable = append(toDisable, progObiStatsKprobeTCPCloseSrtt)
@@ -255,14 +246,11 @@ func NewStatsFetcher(
 	if !events.StatsTCPRetransmits() {
 		toDisable = append(toDisable, progObiStatsRawTpTCPRetransmitSkb)
 	}
+	if !features.StatsTCPResets() {
+		toDisable = append(toDisable, progObiStatsRawTpTCPSendReset, progObiStatsRawTpTCPReceiveReset)
+	}
 	if !events.StatsTCPIo() {
 		toDisable = append(toDisable, progObiStatsKprobeTCPSendmsg, progObiStatsKretprobeTCPSendmsg, progObiStatsKprobeTCPCleanupRbuf, progObiStatsKprobeTCPCloseIoFlush)
-	}
-	if !events.StatsTCPFlowControl() {
-		toDisable = append(toDisable, progObiStatsKprobeTCPSendProbe0)
-	}
-	if !events.StatsTCPCongestion() {
-		toDisable = append(toDisable, progObiStatsKprobeTCPSendmsgCongestion, progObiStatsKprobeTCPCleanupRbufCongestion, progObiStatsKprobeTCPCloseCongestion)
 	}
 
 	if !features.StatsDNSLookups() {
@@ -328,12 +316,11 @@ func NewStatsFetcher(
 	sharedMaps := map[string]*ebpf.Map{}
 	var mu sync.Mutex
 	if err := ebpfconvenience.LoadSpec(spec, &objects, map[string]any{
-		"g_bpf_debug":                      cfg.BpfDebug,
-		"stats_wakeup_data_bytes":          uint32(cfg.StatsWakeupDataBytes),
-		"stats_congestion_min_interval_ns": uint64(congestionMinInterval),
-		"stats_sock_owner_enabled":         sockOwners,
-		"stats_tcp_metrics_enabled":        tcpRows,
-		"stats_tcp_failures_enabled":       tcpRows && features.StatsTCPFailedConnections(),
+		"g_bpf_debug":                cfg.BpfDebug,
+		"stats_wakeup_data_bytes":    uint32(cfg.StatsWakeupDataBytes),
+		"stats_sock_owner_enabled":   sockOwners,
+		"stats_tcp_metrics_enabled":  tcpRows,
+		"stats_tcp_failures_enabled": tcpRows && features.StatsTCPFailedConnections(),
 	}, sharedMaps, &mu, "", nil); err != nil {
 		return nil, fmt.Errorf("loading stats eBPF spec: %w", err)
 	}
@@ -361,21 +348,6 @@ func NewStatsFetcher(
 			name:    KprobeTCPCleanupRbuf,
 			program: objects.ObiStatsKprobeTcpCleanupRbuf,
 			enabled: events.StatsTCPIo(),
-		},
-		{
-			name:    KprobeTCPSendMsg,
-			program: objects.ObiStatsKprobeTcpSendmsgCongestion,
-			enabled: events.StatsTCPCongestion(),
-		},
-		{
-			name:    KprobeTCPCleanupRbuf,
-			program: objects.ObiStatsKprobeTcpCleanupRbufCongestion,
-			enabled: events.StatsTCPCongestion(),
-		},
-		{
-			name:    KprobeTCPClose,
-			program: objects.ObiStatsKprobeTcpCloseCongestion,
-			enabled: events.StatsTCPCongestion(),
 		},
 		{
 			name:    KprobeTCPSendMsg,
@@ -413,11 +385,6 @@ func NewStatsFetcher(
 
 	// optional kprobes: a missing kernel symbol only disables that metric
 	for _, k := range []probe{
-		{
-			name:    KprobeTCPSendProbe0,
-			program: objects.ObiStatsKprobeTcpSendProbe0,
-			enabled: events.StatsTCPFlowControl(),
-		},
 		{
 			name:    KprobeTCPSendProbe0,
 			program: objects.ObiStatsKprobeTcpSendProbe0Row,
@@ -527,6 +494,16 @@ func NewStatsFetcher(
 			program: objects.ObiStatsRawTpTcpRetransmitSkb,
 			enabled: events.StatsTCPRetransmits(),
 		},
+		{
+			name:    RawTracepointTCPSendReset,
+			program: objects.ObiStatsRawTpTcpSendReset,
+			enabled: features.StatsTCPResets(),
+		},
+		{
+			name:    RawTracepointTCPReceiveReset,
+			program: objects.ObiStatsRawTpTcpReceiveReset,
+			enabled: features.StatsTCPResets(),
+		},
 	} {
 		if !t.enabled {
 			continue
@@ -555,7 +532,6 @@ func NewStatsFetcher(
 		log:             tlog,
 		objects:         &objects,
 		closables:       closables,
-		sockOwners:      sockOwners,
 		natTranslations: natTranslations,
 	}, nil
 }
@@ -605,15 +581,6 @@ func (m *StatsFetcher) SocketTrafficClosedMap() *ebpf.Map {
 // SocketTrafficDropsMap returns the per-CPU socket traffic drop counters, indexed by socket_traffic_drop.
 func (m *StatsFetcher) SocketTrafficDropsMap() *ebpf.Map {
 	return m.objects.SocketTrafficDrops
-}
-
-// EndpointOwnerMap returns the map with the process of each local TCP address. It is nil when
-// the TCP stat events do not carry the process of their socket.
-func (m *StatsFetcher) EndpointOwnerMap() *ebpf.Map {
-	if !m.sockOwners {
-		return nil
-	}
-	return m.objects.EndpointOwner
 }
 
 // NATTranslationsMap returns the NAT translations of the conntrack entries. It is nil when the
@@ -799,13 +766,11 @@ func fixupSpec(spec *ebpf.CollectionSpec, toDisable []string) error {
 	return nil
 }
 
-// inetSockSetStateProbes returns the inet_sock_set_state programs in attach order.
-// ObiStatsTpInetSockSetStateTcpFailedConnection, ObiStatsTpInetSockSetStateTcpClosedConnection
-// (or any other probes that use role) must be attached before ObiStatsTpInetSockSetStateConnRole.
-// They attach to the same tracepoint and BPF programs run FIFO:
-// the probes read sock_role first, conn_role deletes it after.
-// Swapping the order would cause tcp_failed_conn or any other probes
-// to see NULL on the same TCP_CLOSE event that conn_role is cleaning up.
+// inetSockSetStateProbes returns the inet_sock_set_state programs, and the tcp_destroy_sock one
+// that deletes sock_role, in attach order. BPF programs of a tracepoint run FIFO:
+// ObiStatsTpInetSockSetStateTcpRow reads sock_owner on TCP_CLOSE, so it is attached before
+// ObiStatsTpInetSockSetStateSockOwner, which deletes it. ObiStatsTpTcpDestroySock is attached
+// before ObiStatsTpInetSockSetStateConnRole, so no sock_role entry is written without its delete.
 func inetSockSetStateProbes(objects *StatsObjects, features *export.Features, connRoleUsed, sockOwners, tcpRows bool) []probe {
 	return []probe{
 		{
@@ -824,9 +789,9 @@ func inetSockSetStateProbes(objects *StatsObjects, features *export.Features, co
 			enabled: features.StatsTCPFailedConnections(),
 		},
 		{
-			name:    TracepointInetSockSetState,
-			program: objects.ObiStatsTpInetSockSetStateTcpClosedConnection,
-			enabled: features.StatsTCPClosedConnections(),
+			name:    TracepointTCPDestroySock,
+			program: objects.ObiStatsTpTcpDestroySock,
+			enabled: connRoleUsed,
 		},
 		{
 			name:    TracepointInetSockSetState,

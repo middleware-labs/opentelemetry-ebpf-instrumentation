@@ -424,6 +424,9 @@ func mustMapStatsFeatureDefaults(ex map[string]any) error {
 	if features.StatsSocketPackets() {
 		want = append(want, "socket_packets")
 	}
+	if features.StatsTCPResets() {
+		want = append(want, "tcp_resets")
+	}
 
 	got := toStringSlice(featuresValue)
 	if !sameStringSet(got, want) {
@@ -516,6 +519,7 @@ func parityChecks() []parityCheck {
 		{[]string{"ebpf", "batch_length"}, []string{"obi", "capture", "engine", "batching", "batch_length"}},
 		{[]string{"ebpf", "batch_timeout"}, []string{"obi", "capture", "engine", "batching", "batch_timeout"}},
 		{[]string{"ebpf", "wakeup_len"}, []string{"obi", "capture", "engine", "batching", "wakeup_len"}},
+		{[]string{"ebpf", "stats_wakeup_data_bytes"}, []string{"obi", "capture", "engine", "batching", "stats", "wakeup_bytes"}},
 		{[]string{"ebpf", "traffic_control_backend"}, []string{"obi", "capture", "engine", "traffic", "control_backend"}},
 		{[]string{"ebpf", "bpf_fs_path"}, []string{"obi", "capture", "engine", "bpf_filesystem", "path"}},
 		{[]string{"ebpf", "max_transaction_time"}, []string{"obi", "capture", "engine", "transactions", "max_duration"}},

@@ -14,7 +14,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/statsolly/ebpf"
 )
 
-var allTCP = EmitFor(new(export.FeatureStats), true)
+var allTCP = EmitFor(new(export.FeatureStats|export.FeatureStatsTCPRowOnly), true)
 
 // byType groups stats by type
 func byType(stats []*ebpf.Stat) map[ebpf.StatType][]*ebpf.Stat {

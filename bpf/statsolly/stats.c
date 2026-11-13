@@ -14,7 +14,9 @@ const enum stat_type *unused_1 __attribute__((unused));
 const enum tcp_fail_reason *unused_2 __attribute__((unused));
 const enum tcp_handshake_role *unused_3 __attribute__((unused));
 const enum network_io_direction *unused_4 __attribute__((unused));
-const enum tcp_flow_control_event *unused_5 __attribute__((unused));
-const enum tcp_congestion_event *unused_6 __attribute__((unused));
+const enum tcp_reset_cause *unused_5 __attribute__((unused));
+const enum tcp_flow_control_event *unused_6 __attribute__((unused));
+const enum tcp_congestion_event *unused_7 __attribute__((unused));
+const enum tcp_retransmit_type *unused_8 __attribute__((unused));
 
 char __license[] SEC("license") = "Dual MIT/GPL";

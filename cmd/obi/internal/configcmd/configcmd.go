@@ -5,6 +5,7 @@ package configcmd // import "go.opentelemetry.io/obi/cmd/obi/internal/configcmd"
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -21,7 +22,8 @@ import (
 	"go.yaml.in/yaml/v3"
 	legacyyaml "gopkg.in/yaml.v3"
 
-	"go.opentelemetry.io/collector/consumer/consumertest"
+	"go.opentelemetry.io/collector/pdata/pmetric"
+	"go.opentelemetry.io/collector/pdata/ptrace"
 
 	"go.opentelemetry.io/obi/internal/config/convert"
 	"go.opentelemetry.io/obi/internal/config/schema"
@@ -640,8 +642,8 @@ func taggedYAMLFields(structType reflect.Type) map[string]struct{} {
 }
 
 func setReceiverConsumers(cfg *obi.Config) {
-	cfg.Traces.TracesConsumer = consumertest.NewNop()
-	cfg.OTELMetrics.MetricsConsumer = consumertest.NewNop()
+	cfg.Traces.TracesExport = func(context.Context, ptrace.Traces) error { return nil }
+	cfg.OTELMetrics.MetricsExport = func(context.Context, pmetric.Metrics) error { return nil }
 }
 
 type yamlPath []any
@@ -662,7 +664,11 @@ func changedInputFields(data []byte, before, after *obi.Config) ([]string, error
 		return nil, err
 	}
 
+	root, _ := source.(map[string]any)
 	var changed []string
+	if hasAnyPath(root, "attributes.select") && before.Attributes.Select.RequiresV2Review() {
+		changed = append(changed, "attributes.select")
+	}
 	languageDetectionSkipsPath := yamlPath{"discovery", "excluded_linux_system_paths"}
 	languageDetectionSkipsName := formatPath(languageDetectionSkipsPath)
 	if _, configured := valueAtPath(source, languageDetectionSkipsPath); configured {
@@ -716,7 +722,6 @@ func changedInputFields(data []byte, before, after *obi.Config) ([]string, error
 			changed = append(changed, name)
 		}
 	}
-	root, _ := source.(map[string]any)
 	changed = append(changed, unsupportedLayeredRoutePaths(root, before.Routes)...)
 	changed = append(changed, unsupportedFeaturePaths(root)...)
 	if hasAnyPath(root, "otel_traces_export.sampler") {
@@ -751,6 +756,9 @@ func changedInputFields(data []byte, before, after *obi.Config) ([]string, error
 				changed = append(changed, path)
 			}
 		}
+	}
+	if changedExemplarFilter(before, after) {
+		changed = append(changed, "prometheus_export.exemplar_filter")
 	}
 	if before.Enabled(obi.FeatureNetO11y) != after.Enabled(obi.FeatureNetO11y) {
 		changed = append(changed, migrationNetworkEnablePath(root))
@@ -795,6 +803,31 @@ func changedInputFields(data []byte, before, after *obi.Config) ([]string, error
 	}
 	sort.Strings(changed)
 	return slices.Compact(changed), nil
+}
+
+func changedExemplarFilter(before, after *obi.Config) bool {
+	if before.OTELMetrics.EndpointEnabled() &&
+		effectiveOTLPExemplarFilter(before) != effectiveOTLPExemplarFilter(after) {
+		return true
+	}
+	return before.Prometheus.EndpointEnabled() &&
+		effectivePrometheusExemplarFilter(before) != effectivePrometheusExemplarFilter(after)
+}
+
+func effectiveOTLPExemplarFilter(cfg *obi.Config) string {
+	if cfg.OTELMetrics.ExemplarFilter == "" {
+		return "trace_based"
+	}
+	return cfg.OTELMetrics.ExemplarFilter
+}
+
+func effectivePrometheusExemplarFilter(cfg *obi.Config) string {
+	switch cfg.Prometheus.ExemplarFilter {
+	case "always_on", "trace_based":
+		return cfg.Prometheus.ExemplarFilter
+	default:
+		return "always_off"
+	}
 }
 
 func preservesV1DerivedMetricProtocols(protocols []instrumentations.Instrumentation) bool {
@@ -1059,6 +1092,7 @@ func migrationAlias(path string) bool {
 		"otel_metrics_export.features",
 		"otel_metrics_export.interval",
 		"otel_metrics_export.protocol",
+		"prometheus_export.exemplar_filter",
 		"prometheus_export.features",
 		"routes",
 		"otel_traces_export.protocol",

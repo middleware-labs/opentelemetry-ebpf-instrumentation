@@ -103,7 +103,6 @@ type ebpFetcher interface {
 	SocketTrafficMap() *ciliumebpf.Map
 	SocketTrafficClosedMap() *ciliumebpf.Map
 	SocketTrafficDropsMap() *ciliumebpf.Map
-	EndpointOwnerMap() *ciliumebpf.Map
 	NATTranslationsMap() *ciliumebpf.Map
 	DebugEventsMap() *ciliumebpf.Map
 }
@@ -131,12 +130,14 @@ func StatsAgent(ctxInfo *global.ContextInfo, cfg *obi.Config) (*Stats, error) {
 
 	selectorCfg := &attributes.SelectorConfig{
 		SelectionCfg:            cfg.Attributes.Select,
+		UseV2Selection:          cfg.Attributes.UseV2Selection,
 		ExtraGroupAttributesCfg: cfg.Attributes.ExtraGroupAttributes,
 	}
 	tcpSrc, tcpDst := processAttrsSelected(cfg, tcpStatMetrics(&cfg.Metrics.Features))
 	tcpRows := ebpf.TCPMetricsFromRows(&cfg.Metrics.Features, &cfg.Stats.SocketTraffic)
+	// the TCP rows updated in softirq or timers take the process of their socket
 	statsFetcher, err = newFetcher(&cfg.EBPF, &cfg.Metrics.Features, selectorCfg, &cfg.Stats.SocketTraffic,
-		tcpSrc || tcpDst, natSelected(cfg, tcpRows))
+		tcpRows && (tcpSrc || tcpDst), natSelected(cfg, tcpRows))
 	if err != nil {
 		return nil, err
 	}
@@ -162,11 +163,7 @@ func statsAgent(
 	statsFetcher ebpFetcher,
 	agentIP net.IP,
 ) (*Stats, error) {
-	var endpointOwners *ciliumebpf.Map
-	if _, dst := processAttrsSelected(cfg, tcpStatMetrics(&cfg.Metrics.Features)); dst {
-		endpointOwners = statsFetcher.EndpointOwnerMap()
-	}
-	rbTracer := stats.NewRingBufTracer(statsFetcher.StatsEventsMap(), endpointOwners, &cfg.EBPF)
+	rbTracer := stats.NewRingBufTracer(statsFetcher.StatsEventsMap(), &cfg.EBPF, cfg.ShutdownTimeout)
 
 	var dnsTracer *stats.DNSTracer
 	if cfg.Metrics.Features.StatsDNSLookups() {
@@ -271,7 +268,7 @@ func (s *Stats) findDNSServerContainers(ctx context.Context) {
 	s.dnsTracer.FindContainers(addrs)
 }
 
-// tcpStatMetrics are the metrics that take the process of a socket from the TCP stat events
+// tcpStatMetrics are the TCP stat metrics, read from the TCP socket traffic rows or the events
 func tcpStatMetrics(features *export.Features) []statMetric {
 	return []statMetric{
 		{features.StatsTCPRtt(), attributes.StatTCPRtt},
@@ -441,14 +438,17 @@ func (s *Stats) Run(ctx context.Context) error {
 			slog.With("component", "statsolly.BPFDebug"))
 	}
 
-	graph, err := s.buildPipeline(ctx)
+	pipelineCtx, cancelPipeline := context.WithCancel(context.WithoutCancel(ctx))
+	defer cancelPipeline()
+
+	graph, err := s.buildPipeline(pipelineCtx, ctx)
 	if err != nil {
 		return fmt.Errorf("starting processing graph: %w", err)
 	}
 
 	s.graph = graph
 
-	s.graph.Start(ctx, swarm.WithCancelTimeout(tracefs.EffectiveShutdownTimeout(s.cfg.ShutdownTimeout)))
+	s.graph.Start(pipelineCtx, swarm.WithCancelTimeout(tracefs.EffectiveShutdownTimeout(s.cfg.ShutdownTimeout)))
 	s.status = StatusStarted
 
 	alog.Info("Stats agent successfully started")

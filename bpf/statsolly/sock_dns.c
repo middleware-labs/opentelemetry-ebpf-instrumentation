@@ -11,7 +11,7 @@
 #include <common/protocol_defs.h>
 
 #include <statsolly/types.h>
-#include <statsolly/maps/stats_events.h>
+#include <statsolly/ringbuf_flags.h>
 #include <statsolly/maps/stats_dns_events.h>
 
 enum : u16 { k_dns_port = 53 };

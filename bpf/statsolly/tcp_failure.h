@@ -8,9 +8,8 @@
 #include <bpfcore/bpf_core_read.h>
 
 #include <statsolly/types.h>
-#include <statsolly/maps/sock_role.h>
 
-// The failed connections, for the events and the socket traffic rows
+// The failed connections of the socket traffic rows. tp_tcp.c has the same logic for the events.
 
 #ifndef ECONNREFUSED
 #define ECONNREFUSED 111
@@ -28,7 +27,7 @@
 #define ENETUNREACH 101
 #endif
 
-static __always_inline enum tcp_fail_reason sk_err_to_reason(const int err) {
+static __always_inline enum tcp_fail_reason row_fail_reason(const int err) {
     switch (err) {
     case ECONNREFUSED:
         return reason_connection_refused;
@@ -68,22 +67,6 @@ tcp_failure(struct sock *const sk,
     if (err == 0 && args->oldstate != TCP_SYN_SENT) {
         return false;
     }
-    *reason = sk_err_to_reason(err);
+    *reason = row_fail_reason(err);
     return true;
-}
-
-static __always_inline enum tcp_handshake_role
-closing_sock_role(struct sock *const sk,
-                  const struct trace_event_raw_inet_sock_set_state *const args) {
-    const u8 *const role_ptr = bpf_map_lookup_elem(&sock_role, &sk);
-    if (role_ptr) {
-        return *role_ptr;
-    }
-    if (args->oldstate == TCP_SYN_SENT) {
-        return role_client;
-    }
-    if (args->oldstate == TCP_SYN_RECV) {
-        return role_server;
-    }
-    return role_unknown;
 }

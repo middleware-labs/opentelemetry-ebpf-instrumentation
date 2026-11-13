@@ -7,7 +7,13 @@
 #include <bpfcore/bpf_core_read.h>
 
 #include <statsolly/types.h>
-#include <statsolly/maps/tcp_cong_last.h>
+
+// The per-socket congestion totals of the socket traffic rows
+typedef struct tcp_cong_vals {
+    u32 delivered_ce;
+    u32 reord_seen;
+    u32 rcv_ooopack;
+} tcp_cong_vals_t;
 
 static __always_inline void read_cong_vals(struct sock *sk, tcp_cong_vals_t *vals) {
     const struct tcp_sock *tp = (const struct tcp_sock *)sk;

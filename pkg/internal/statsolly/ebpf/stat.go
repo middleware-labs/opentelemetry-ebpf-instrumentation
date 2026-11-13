@@ -24,6 +24,7 @@ const (
 	StatTypeTCPRetransmit           = StatType(StatsStatTypeK_statTypeTcpRetransmit)
 	StatTypeTCPIo                   = StatType(StatsStatTypeK_statTypeTcpIo)
 	StatTypeTCPSuccessfulConnection = StatType(StatsStatTypeK_statTypeTcpSuccessfulConnection)
+	StatTypeTCPReset                = StatType(StatsStatTypeK_statTypeTcpReset)
 	StatTypeTCPFlowControl          = StatType(StatsStatTypeK_statTypeTcpFlowControl)
 	StatTypeTCPCongestion           = StatType(StatsStatTypeK_statTypeTcpCongestion)
 	StatTypeTCPClosedConnection     = StatType(StatsStatTypeK_statTypeTcpClosedConnection)
@@ -146,6 +147,23 @@ const (
 	CodeDirectionTransmit = NetworkIoDirectionCode(StatsNetworkIoDirectionDirectionTransmit)
 )
 
+type TCPResetCauseType string
+
+const (
+	ResetCauseApplication TCPResetCauseType = "application"
+	ResetCauseTimeout     TCPResetCauseType = "timeout"
+)
+
+// TCPResetCauseCode aliases the bpf2go-generated constants derived from
+// enum tcp_reset_cause in bpf/statsolly/types.h.
+type TCPResetCauseCode uint8
+
+const (
+	CodeResetCauseUnknown     = TCPResetCauseCode(StatsTcpResetCauseResetCauseUnknown)
+	CodeResetCauseApplication = TCPResetCauseCode(StatsTcpResetCauseResetCauseApplication)
+	CodeResetCauseTimeout     = TCPResetCauseCode(StatsTcpResetCauseResetCauseTimeout)
+)
+
 // Stat contains accumulated metrics from a stat, with extra metadata
 // that is added from the user space
 // REMINDER: any attribute here must be also added to the functions StatGetters
@@ -161,6 +179,7 @@ type Stat struct {
 	TCPRetransmitType       uint8                    `json:"-"`
 	TCPRetransmitRole       uint8                    `json:"-"`
 	TCPIo                   *TCPIo                   `json:"-"`
+	TCPReset                *TCPReset                `json:"-"`
 	TCPFlowControl          *TCPFlowControl          `json:"-"`
 	TCPCongestion           *TCPCongestion           `json:"-"`
 	TCPCongestionEvent      *TCPCongestionEvent      `json:"-"`
@@ -315,6 +334,11 @@ type TCPIo struct {
 	Role      uint8  `json:"role"`
 }
 
+type TCPReset struct {
+	Direction uint8 `json:"direction"`
+	Cause     uint8 `json:"cause"`
+}
+
 // Conn mirrors connection_info_t from bpf/common/connection_info.h.
 type Conn struct {
 	_      structs.HostLayout
@@ -331,7 +355,6 @@ type StatsTCPRtt struct {
 	Pad    [2]uint8
 	SrttUs uint32
 	Conn
-	Owner StatsSockOwnerT
 }
 
 type StatsTCPFailedConnection struct {
@@ -341,7 +364,6 @@ type StatsTCPFailedConnection struct {
 	Role   uint8
 	Pad    [1]uint8
 	Conn
-	Owner StatsSockOwnerT
 }
 
 type StatsTCPSuccessfulConnection struct {
@@ -350,54 +372,22 @@ type StatsTCPSuccessfulConnection struct {
 	Role  uint8
 	Pad   [2]uint8
 	Conn
-	Owner StatsSockOwnerT
-}
-
-type StatsTCPClosedConnection struct {
-	_     structs.HostLayout
-	Flags uint8
-	Role  uint8
-	Pad   [2]uint8
-	Conn
-	Owner StatsSockOwnerT
 }
 
 type StatsTCPRetransmit struct {
 	_     structs.HostLayout
 	Flags uint8
-	Type  uint8
-	Role  uint8
-	Pad   [1]uint8
+	Pad   [3]uint8
 	Conn
-	Owner StatsSockOwnerT
 }
 
-type StatsTCPFlowControl struct {
-	_     structs.HostLayout
-	Flags uint8
-	Event uint8
-	Role  uint8
-	Pad   [1]uint8
+type StatsTCPReset struct {
+	_         structs.HostLayout
+	Flags     uint8
+	Direction uint8
+	Cause     uint8
+	Pad       [1]uint8
 	Conn
-	Owner StatsSockOwnerT
-}
-
-// TCPCongVals mirrors tcp_cong_vals_t from bpf/statsolly/maps/tcp_cong_last.h.
-type TCPCongVals struct {
-	_           structs.HostLayout
-	DeliveredCE uint32
-	ReordSeen   uint32
-	RcvOOOPack  uint32
-}
-
-type StatsTCPCongestion struct {
-	_     structs.HostLayout
-	Flags uint8
-	Role  uint8
-	Pad   [2]uint8
-	Delta TCPCongVals
-	Conn
-	Owner StatsSockOwnerT
 }
 
 type StatsTCPIo struct {
@@ -405,10 +395,9 @@ type StatsTCPIo struct {
 	Flags     uint8
 	Direction uint8
 	Count     uint8
-	Role      uint8
+	Pad       [1]uint8
 	Bytes     [TCPIoBatchSize]uint32
 	Conn
-	Owner StatsSockOwnerT
 }
 
 // StatsDNSPacket mirrors dns_packet_t from bpf/statsolly/sock_dns.c.

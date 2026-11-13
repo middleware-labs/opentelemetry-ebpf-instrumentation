@@ -13,8 +13,8 @@
 
 // Records the process of each TCP socket for the TCP stat events, see maps/sock_owner.h
 
-// Attachment order invariant: like obi_stats_tp_inet_sock_set_state_conn_role, this program
-// must be attached after the programs of this tracepoint that read sock_owner on TCP_CLOSE.
+// Attachment order invariant: this program must be attached after the programs of this
+// tracepoint that read sock_owner on TCP_CLOSE.
 SEC("tracepoint/sock/inet_sock_set_state")
 int obi_stats_tp_inet_sock_set_state_sock_owner(struct trace_event_raw_inet_sock_set_state *args) {
     if (!inet_sock_set_state_tcp(args)) {

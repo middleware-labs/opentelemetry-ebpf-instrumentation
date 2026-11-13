@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -18,8 +19,6 @@ import (
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/invopop/jsonschema"
 	"gopkg.in/yaml.v3"
-
-	"go.opentelemetry.io/collector/confmap"
 
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/cloud"
@@ -42,6 +41,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/kube/klogbridge"
 	"go.opentelemetry.io/obi/pkg/kube/kubeflags"
 	"go.opentelemetry.io/obi/pkg/metadata"
+	"go.opentelemetry.io/obi/pkg/metadata/peer"
 	"go.opentelemetry.io/obi/pkg/transform"
 )
 
@@ -119,6 +119,7 @@ var (
 )
 
 var DefaultConfig = Config{
+	Logs:                    otelcfg.LogsConfig{BatchMaxSize: 512, QueueSize: 2048, BatchTimeout: time.Second},
 	ChannelBufferLen:        50,
 	ChannelSendTimeout:      time.Minute,
 	ChannelSendTimeoutPanic: false,
@@ -174,6 +175,7 @@ var DefaultConfig = Config{
 					EndpointPatterns: []string{
 						"/query/service",
 					},
+					PreparedStatementsCacheSize: 1024,
 				},
 				GenAI: config.GenAIConfig{
 					OpenAI: config.OpenAIConfig{
@@ -227,9 +229,11 @@ var DefaultConfig = Config{
 		BPFFSPath:      "/sys/fs/bpf/",
 		InstrumentCuda: config.CudaModeAuto,
 	},
+	PeerMetadata: peer.DefaultConfig(),
 	CloudMetadata: transform.CloudMetadataConfig{
-		RefreshInterval: 30 * time.Second,
-		Route53:         transform.Route53MetadataConfig{RefreshInterval: cloud.DefaultRoute53RefreshInterval},
+		DetectionEnabled: true,
+		RefreshInterval:  30 * time.Second,
+		Route53:          transform.Route53MetadataConfig{RefreshInterval: cloud.DefaultRoute53RefreshInterval},
 	},
 	NameResolver: &transform.NameResolverConfig{
 		Sources: []transform.Source{
@@ -257,7 +261,8 @@ var DefaultConfig = Config{
 		Instrumentations: []instrumentations.Instrumentation{
 			instrumentations.InstrumentationALL,
 		},
-		TTL: defaultMetricsTTL,
+		TTL:               defaultMetricsTTL,
+		ConnectionInfoTTL: export.DefaultConnectionInfoTTL,
 	},
 	Traces: otelcfg.TracesConfig{
 		Protocol:          otelcfg.ProtocolUnset,
@@ -291,6 +296,7 @@ var DefaultConfig = Config{
 			instrumentations.InstrumentationALL,
 		},
 		TTL:                         defaultMetricsTTL,
+		ConnectionInfoTTL:           export.DefaultConnectionInfoTTL,
 		SpanMetricsServiceCacheSize: 10000,
 	},
 	TracePrinter: debug.TracePrinterDisabled,
@@ -388,6 +394,8 @@ type Config struct {
 
 	Attributes    Attributes                    `yaml:"attributes"`
 	CloudMetadata transform.CloudMetadataConfig `yaml:"cloud_metadata"`
+
+	PeerMetadata peer.MetadataConfig `yaml:"-" env:"-" jsonschema:"-" validate:"-"`
 	// Routes configures URL path grouping. If not set, data will be directly forwarded to exporters.
 	Routes       *transform.RoutesConfig       `yaml:"routes"`
 	NameResolver *transform.NameResolverConfig `yaml:"name_resolver"`
@@ -395,6 +403,10 @@ type Config struct {
 	Traces       otelcfg.TracesConfig          `yaml:"otel_traces_export"`
 	Prometheus   prom.PrometheusConfig         `yaml:"prometheus_export"`
 	TracePrinter debug.TracePrinter            `yaml:"trace_printer" env:"OTEL_EBPF_TRACE_PRINTER"`
+
+	// Exceptions and Logs are set only by config v2.
+	Exceptions services.ExceptionsConfig `yaml:"-" env:"-"`
+	Logs       otelcfg.LogsConfig        `yaml:"-" env:"-"`
 
 	// Exec allows selecting the instrumented executable whose complete path contains the Exec value.
 	//
@@ -517,12 +529,11 @@ type HealthCheckConfig struct {
 	UnixSocketPath string `yaml:"unix_socket_path" env:"OTEL_EBPF_HEALTH_CHECK_UNIX_SOCKET_PATH"`
 }
 
-func (c *Config) Unmarshal(component *confmap.Conf) error {
-	if component == nil {
+// UnmarshalMap decodes an OBI configuration from a map of YAML field names.
+func (c *Config) UnmarshalMap(raw map[string]any) error {
+	if raw == nil {
 		return nil
 	}
-
-	raw := component.ToStringMap()
 
 	dec, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
 		TagName:          "yaml",
@@ -543,7 +554,11 @@ func (c *Config) Unmarshal(component *confmap.Conf) error {
 		return err
 	}
 
-	return dec.Decode(raw)
+	if err := dec.Decode(raw); err != nil {
+		return err
+	}
+	c.normalizeV1ResolverSources()
+	return nil
 }
 
 func cidrDefinitionsHookFunc() mapstructure.DecodeHookFunc {
@@ -715,6 +730,9 @@ type Attributes struct {
 
 	// SensitiveQueryParams controls which query-parameter keys are redacted in url.full and url.query.
 	SensitiveQueryParams attributes.SensitiveQueryParamsConfig `yaml:"sensitive_query_params"`
+
+	SanitizeSQLQueryText bool `yaml:"-" env:"-" json:"-"`
+	UseV2Selection       bool `yaml:"-" env:"-" json:"-"`
 }
 
 type HostIDConfig struct {
@@ -775,6 +793,13 @@ func (c *Config) ValidateStatic() error {
 	return c.validate(validationContext{})
 }
 
+// ValidateStaticForApplicationRefresh validates a selection refresh for an already
+// initialized application pipeline without inspecting host state. The pipeline
+// may become idle when all include rules are removed.
+func (c *Config) ValidateStaticForApplicationRefresh() error {
+	return c.validate(validationContext{applicationPipelineInitialized: true})
+}
+
 // ValidateForReceiver validates an OBI configuration whose signal consumers
 // are supplied by a Collector receiver.
 func (c *Config) ValidateForReceiver() error {
@@ -792,9 +817,10 @@ func (c *Config) ValidateStaticForReceiver() error {
 }
 
 type validationContext struct {
-	hostTracesSink           bool
-	hostMetricsSink          bool
-	checkCiliumCompatibility func(config.TCBackend) error
+	applicationPipelineInitialized bool
+	hostTracesSink                 bool
+	hostMetricsSink                bool
+	checkCiliumCompatibility       func(config.TCBackend) error
 }
 
 //nolint:cyclop
@@ -859,7 +885,7 @@ func (c *Config) validate(context validationContext) error {
 	}
 
 	networkEnabled := c.enabledForValidation(FeatureNetO11y, context)
-	applicationEnabled := c.enabledForValidation(FeatureAppO11y, context)
+	applicationEnabled := context.applicationPipelineInitialized || c.enabledForValidation(FeatureAppO11y, context)
 	statsEnabled := c.enabledForValidation(FeatureStatsO11y, context)
 	if !networkEnabled && !applicationEnabled && !statsEnabled {
 		return ConfigError("at least one of 'network', 'application' or 'stats' features must be enabled. " +
@@ -874,6 +900,12 @@ func (c *Config) validate(context validationContext) error {
 		}
 	}
 
+	if err := c.Logs.Validate(); err != nil {
+		return ConfigError(err.Error())
+	}
+	if c.ExceptionsEnabled() && !c.Logs.Enabled() {
+		return ConfigError("exception capture requires a logger_provider exporter or a logs consumer")
+	}
 	otelMetricsEnabled := context.hostMetricsSink || c.OTELMetrics.EndpointEnabled()
 	tracesEnabled := context.hostTracesSink || c.Traces.Enabled()
 
@@ -883,6 +915,12 @@ func (c *Config) validate(context validationContext) error {
 			" metrics exporter: otel_metrics_export or prometheus_export sections in the YAML configuration file; or the" +
 			" OTEL_EXPORTER_OTLP_ENDPOINT, OTEL_EXPORTER_OTLP_METRICS_ENDPOINT or OTEL_EBPF_PROMETHEUS_PORT environment variables. For debugging" +
 			" purposes, you can also set OTEL_EBPF_NETWORK_PRINT_FLOWS=true")
+	}
+
+	if statsEnabled {
+		if err := c.validateStatsTCPRowFeatures(); err != nil {
+			return err
+		}
 	}
 
 	if statsEnabled && !otelMetricsEnabled &&
@@ -898,7 +936,7 @@ func (c *Config) validate(context validationContext) error {
 	}
 
 	if applicationEnabled && !c.TracePrinter.Enabled() &&
-		!otelMetricsEnabled && !tracesEnabled &&
+		!otelMetricsEnabled && !tracesEnabled && !c.Logs.Enabled() &&
 		!c.Prometheus.EndpointEnabled() && !c.TracePrinter.Enabled() {
 		return ConfigError("you need to define at least one exporter: trace_printer," +
 			" otel_metrics_export, otel_traces_export or prometheus_export")
@@ -921,6 +959,10 @@ func (c *Config) validate(context validationContext) error {
 	}
 	if c.InternalMetrics.Exporter == imetrics.InternalMetricsExporterOTEL && !otelMetricsEnabled {
 		return ConfigError("you can't enable OTEL internal metrics without enabling OTEL metrics")
+	}
+
+	if err := c.PeerMetadata.Validate(); err != nil {
+		return ConfigError(err.Error())
 	}
 
 	return nil
@@ -1007,6 +1049,28 @@ func (c *Config) resolveSpanMetricsFormats() error {
 
 // warnDeprecatedMetricsFeatures reports every deprecated metrics feature that is still
 // enabled, across the top-level and per-service configurations.
+// validateStatsTCPRowFeatures checks that the TCP stat metrics that only the socket traffic rows
+// hold are read from them
+func (c *Config) validateStatsTCPRowFeatures() error {
+	if c.Stats.SocketTraffic.TCPMetrics {
+		return nil
+	}
+	features := c.Metrics.Features
+	for _, f := range []struct {
+		name    string
+		enabled bool
+	}{
+		{name: "stats_tcp_flow_control", enabled: features.StatsTCPFlowControl()},
+		{name: "stats_tcp_congestion", enabled: features.StatsTCPCongestion()},
+		{name: "stats_tcp_closed_connections", enabled: features.StatsTCPClosedConnections()},
+	} {
+		if f.enabled {
+			return ConfigError(f.name + " requires stats.socket_traffic.tcp_metrics: true")
+		}
+	}
+	return nil
+}
+
 func (c *Config) warnDeprecatedMetricsFeatures() {
 	for _, deprecated := range c.JoinMetricsConfig().Features.DeprecatedEnabled() {
 		if deprecated.Replacement == "" {
@@ -1121,9 +1185,23 @@ func LoadConfig(file io.Reader) (*Config, error) {
 		return nil, fmt.Errorf("reading env vars: %w", err)
 	}
 
+	cfg.normalizeV1ResolverSources()
 	cfg.normalize()
 
 	return &cfg, nil
+}
+
+func (c *Config) normalizeV1ResolverSources() {
+	if c.NameResolver == nil {
+		return
+	}
+	// Legacy configurations retain the pre-GCE set of resolver sources.
+	resolver := *c.NameResolver
+	resolver.Sources = slices.DeleteFunc(slices.Clone(resolver.Sources), func(source transform.Source) bool {
+		return strings.EqualFold(string(source), string(transform.SourceGCE)) ||
+			strings.EqualFold(string(source), string(transform.SourceAzure))
+	})
+	c.NameResolver = &resolver
 }
 
 func registerCustomValidations(validate *validator.Validate, customValidations CustomValidations) error {
@@ -1151,4 +1229,22 @@ func (c *Config) normalize() {
 	if c.NetworkFlows.Enable {
 		c.Metrics.Features |= export.FeatureNetwork
 	}
+}
+
+// ExceptionsEnabled reports whether any selected workload can request capture.
+func (c *Config) ExceptionsEnabled() bool {
+	if c.Exceptions.Enabled {
+		return true
+	}
+	for _, s := range c.Discovery.Instrument {
+		if s.Exceptions.Resolve(c.Exceptions).Enabled {
+			return true
+		}
+	}
+	for _, s := range c.Discovery.Services {
+		if s.Exceptions.Resolve(c.Exceptions).Enabled {
+			return true
+		}
+	}
+	return false
 }
