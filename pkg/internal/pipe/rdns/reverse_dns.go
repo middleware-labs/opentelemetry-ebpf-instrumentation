@@ -17,7 +17,7 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/internal/pipe"
-	"go.opentelemetry.io/obi/pkg/internal/rdns/ebpf/xdp"
+	"go.opentelemetry.io/obi/pkg/internal/rdns/ebpf/sockfilter"
 	"go.opentelemetry.io/obi/pkg/internal/rdns/store"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
@@ -36,11 +36,11 @@ func rdlog() *slog.Logger {
 var netLookupAddr = net.LookupAddr
 
 var startDNSPacketInspector = func(ctx context.Context, dnsCache *store.InMemory, ebpfCfg *config.EBPFTracer) (<-chan struct{}, error) {
-	return xdp.StartDNSPacketInspector(ctx, dnsCache, ebpfCfg)
+	return sockfilter.StartDNSPacketInspector(ctx, dnsCache, ebpfCfg)
 }
 
 // EBPFLookup shares the eBPF-based reverse DNS between the pipelines of an OBI run,
-// as an XDP program can be attached only once per interface.
+// so that a single socket inspects the DNS responses for all of them.
 type EBPFLookup struct {
 	ctx      context.Context
 	cancel   context.CancelFunc

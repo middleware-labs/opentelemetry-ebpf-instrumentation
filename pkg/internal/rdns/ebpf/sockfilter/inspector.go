@@ -1,16 +1,20 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package xdp // import "go.opentelemetry.io/obi/pkg/internal/rdns/ebpf/xdp"
+package sockfilter // import "go.opentelemetry.io/obi/pkg/internal/rdns/ebpf/sockfilter"
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net"
 	"os"
+	"strings"
 	"time"
+	"unsafe"
 
 	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/ebpf/common/dnsparser"
@@ -18,8 +22,12 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/rdns/store"
 )
 
+// the socket filter only wakes the reader up when many responses are waiting: the reader reads
+// the others at least this often, so they are stored before the connections they precede
+const pollInterval = 100 * time.Millisecond
+
 func log() *slog.Logger {
-	return slog.With("component", "xdp.DNSPacketInspector")
+	return slog.With("component", "sockfilter.DNSPacketInspector")
 }
 
 // storage backend for DNS IP-->Hostnames relation
@@ -29,11 +37,11 @@ type storage interface {
 }
 
 // StartDNSPacketInspector in a backgound goroutine. The returned channel is closed
-// once the inspector has stopped and detached from the network interfaces.
+// once the inspector has stopped and closed its socket.
 func StartDNSPacketInspector(ctx context.Context, storage storage, ebpfCfg *config.EBPFTracer) (<-chan struct{}, error) {
 	tracer, err := newTracer(ebpfCfg)
 	if err != nil {
-		return nil, fmt.Errorf("instantiating XDP tracer: %w", err)
+		return nil, fmt.Errorf("instantiating DNS socket tracer: %w", err)
 	}
 
 	stopped := make(chan struct{})
@@ -54,6 +62,9 @@ func tracerLoop(ctx context.Context, storage storage, tracer *tracer) {
 
 	record := ringbuf.Record{}
 
+	// the socket sees a response once per interface that it crosses, usually back to back
+	var previous []byte
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -66,7 +77,7 @@ func tracerLoop(ctx context.Context, storage storage, tracer *tracer) {
 		// channel - this allows its allocated memory to be reused by
 		// subsequent ReadInto() calls, allowing the record data to be parsed
 		// in place by parseDNSMessage()
-		tracer.ringbuf.SetDeadline(time.Now().Add(time.Second))
+		tracer.ringbuf.SetDeadline(time.Now().Add(pollInterval))
 		err := tracer.ringbuf.ReadInto(&record)
 		if err != nil {
 			if errors.Is(err, ringbuf.ErrClosed) {
@@ -78,7 +89,13 @@ func tracerLoop(ctx context.Context, storage storage, tracer *tracer) {
 			continue
 		}
 
-		entry := handleDNSMessage(&record)
+		msg := responseMessage(record.RawSample)
+		if bytes.Equal(msg, previous) {
+			continue
+		}
+		previous = append(previous[:0], msg...)
+
+		entry := handleDNSMessage(msg)
 
 		if entry != nil {
 			log.Debug("received DNS entry", "host", entry.HostName, "ips", entry.IPs)
@@ -87,25 +104,23 @@ func tracerLoop(ctx context.Context, storage storage, tracer *tracer) {
 	}
 }
 
-func handleDNSMessage(rd *ringbuf.Record) *store.DNSEntry {
-	dnsMessage := parseDNSMessage(rd.RawSample)
+func handleDNSMessage(msg []byte) *store.DNSEntry {
+	dnsMessage := parseDNSMessage(msg)
 
 	if dnsMessage == nil || len(dnsMessage.questions) == 0 {
 		return nil
 	}
 
 	entry := store.DNSEntry{
-		HostName: dnsMessage.questions[0].qName,
+		// names are case-insensitive, and some resolvers randomize the case of the queries
+		HostName: strings.ToLower(dnsMessage.questions[0].qName),
 		IPs:      make([]string, 0, len(dnsMessage.answers)),
 	}
 
 	for _, answer := range dnsMessage.answers {
-		if answer.typ != uint16(dnsparser.TypeA) {
-			continue
+		if ip := answerIP(answer); ip != nil {
+			entry.IPs = append(entry.IPs, ip.String())
 		}
-
-		ipStr := net.IP(answer.data).String()
-		entry.IPs = append(entry.IPs, ipStr)
 	}
 
 	if len(entry.IPs) == 0 {
@@ -113,4 +128,31 @@ func handleDNSMessage(rd *ringbuf.Record) *store.DNSEntry {
 	}
 
 	return &entry
+}
+
+// responseMessage returns the DNS message of an rdns_response_t record,
+// or nil when the record is malformed.
+func responseMessage(raw []byte) []byte {
+	msgOffset := int(unsafe.Offsetof(BpfRdnsResponseT{}.Buf))
+	if len(raw) < msgOffset {
+		return nil
+	}
+
+	msgLen := int(binary.NativeEndian.Uint16(raw))
+	msg := raw[msgOffset:]
+	if msgLen > len(msg) {
+		return nil
+	}
+	return msg[:msgLen]
+}
+
+// answerIP returns the address of an A or AAAA answer, or nil for any other answer
+func answerIP(answer *record) net.IP {
+	switch {
+	case answer.typ == uint16(dnsparser.TypeA) && len(answer.data) == net.IPv4len,
+		answer.typ == uint16(dnsparser.TypeAAAA) && len(answer.data) == net.IPv6len:
+		return net.IP(answer.data)
+	default:
+		return nil
+	}
 }

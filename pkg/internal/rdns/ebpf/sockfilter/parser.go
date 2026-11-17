@@ -1,8 +1,8 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-// Package xdp provides DNS message parsing functionality for the XDP-based DNS response tracker.
-package xdp // import "go.opentelemetry.io/obi/pkg/internal/rdns/ebpf/xdp"
+// Package sockfilter provides the reverse DNS that reads the DNS responses through a socket filter.
+package sockfilter // import "go.opentelemetry.io/obi/pkg/internal/rdns/ebpf/sockfilter"
 
 import (
 	"bytes"
@@ -18,6 +18,12 @@ const (
 	maxNameLength     = 255
 	minQuestionLength = 1 + 2*wordSize
 	minRecordLength   = 1 + 5*wordSize
+
+	// the two top bits of a label length byte that mark a compression pointer (RFC 1035 4.1.4)
+	compressionPointer = 0xc0
+	// bounds the pointers followed in a name, which also stops pointer loops.
+	// golang.org/x/net/dns/dnsmessage uses the same limit.
+	maxCompressionPointers = 10
 )
 
 // readByte reads and returns a single byte from the buffer
@@ -108,7 +114,7 @@ func parseQSection(data *bytes.Buffer) *question {
 	s := question{}
 
 	var valid bool
-	s.qName, valid = parseSectionLabel(data)
+	s.qName, valid = parseSectionLabel(data, nil)
 
 	if !valid || s.qName == "" {
 		return nil
@@ -125,13 +131,16 @@ func parseQSection(data *bytes.Buffer) *question {
 }
 
 // parseSectionLabel parses a DNS label sequence from the buffer.
-// Labels are separated by dots and terminated by a zero-length label.
+// Labels are separated by dots and terminated by a zero-length label or by a compression
+// pointer, which continues the name at an offset of base, the whole message. A nil base
+// rejects compression pointers.
 // Returns false if the label sequence is malformed.
-func parseSectionLabel(data *bytes.Buffer) (string, bool) {
+func parseSectionLabel(data *bytes.Buffer, base []byte) (string, bool) {
 	var labelBuilder strings.Builder
 
 	sep := ""
 	nameLength := 0
+	pointers := 0
 
 	for {
 		if data.Len() == 0 {
@@ -139,6 +148,23 @@ func parseSectionLabel(data *bytes.Buffer) (string, bool) {
 		}
 
 		labelLen := int(readByte(data))
+
+		if labelLen&compressionPointer == compressionPointer {
+			if data.Len() == 0 {
+				return "", false
+			}
+
+			offset := int(binary.BigEndian.Uint16([]byte{byte(labelLen &^ compressionPointer), readByte(data)}))
+			pointers++
+			if pointers > maxCompressionPointers || offset >= len(base) {
+				return "", false
+			}
+
+			// the pointer ends the name in data: the rest of the name is read from base
+			data = bytes.NewBuffer(base[offset:])
+			continue
+		}
+
 		nameLength++
 		if nameLength > maxNameLength {
 			return "", false
@@ -180,7 +206,7 @@ func parseRecords(data *bytes.Buffer, base []byte, count uint16) []*record {
 }
 
 // parseRecord parses a single DNS resource record from the buffer.
-// It handles both normal and compressed labels, and extracts record type,
+// It handles both normal and compressed names, and extracts record type,
 // class, TTL, and record data.
 // Returns nil if the record is malformed.
 func parseRecord(data *bytes.Buffer, base []byte) *record {
@@ -189,32 +215,9 @@ func parseRecord(data *bytes.Buffer, base []byte) *record {
 	}
 
 	r := record{}
-	validName := false
 
-	labelLen := readByte(data)
-
-	// we have a compressed label
-	if (labelLen & 0xc0) == 0xc0 {
-		if data.Len() == 0 {
-			return nil
-		}
-
-		labelLen &= 0x3f
-		lenLo := readByte(data)
-
-		offsetBe := []byte{labelLen, lenLo}
-		offset := binary.BigEndian.Uint16(offsetBe)
-
-		if int(offset) >= len(base) {
-			return nil
-		}
-
-		r.name, validName = parseSectionLabel(bytes.NewBuffer(base[offset:]))
-	} else {
-		_ = data.UnreadByte()
-		r.name, validName = parseSectionLabel(data)
-	}
-
+	var validName bool
+	r.name, validName = parseSectionLabel(data, base)
 	if !validName {
 		return nil
 	}

@@ -27,8 +27,14 @@ var attachPMU = func(symbol string, prog *ebpf.Program, ret bool) (io.Closer, er
 
 var attachTraceFSEvent = tracefs.Attach
 
+// A maxactive kretprobe is always a tracefs event, which outlives OBI if OBI can't remove it.
+// Its group is named after OBI's PID, so that the next OBI can remove it.
 var attachRetMaxActive = func(symbol string, prog *ebpf.Program, maxActive int) (io.Closer, error) {
-	return link.Kretprobe(symbol, prog, &link.KprobeOptions{RetprobeMaxActive: maxActive})
+	tracefs.RemoveStale()
+	return link.Kretprobe(symbol, prog, &link.KprobeOptions{
+		RetprobeMaxActive: maxActive,
+		TraceFSPrefix:     tracefs.GroupPrefix(),
+	})
 }
 
 // Attach retries an EACCES from the PMU through tracefs, keeping the kernel's

@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package xdp
+package sockfilter
 
 import (
 	"bytes"
@@ -254,7 +254,7 @@ func TestParseRecordCompressionPointerBoundaries(t *testing.T) {
 
 func TestLabelAndRecordTruncation(t *testing.T) {
 	t.Run("partial label", func(t *testing.T) {
-		if label, valid := parseSectionLabel(bytes.NewBuffer([]byte{3, 'w', 'w'})); valid {
+		if label, valid := parseSectionLabel(bytes.NewBuffer([]byte{3, 'w', 'w'}), nil); valid {
 			t.Fatalf("parseSectionLabel() = %q, true; want invalid", label)
 		}
 	})
@@ -262,7 +262,7 @@ func TestLabelAndRecordTruncation(t *testing.T) {
 	t.Run("invalid label length", func(t *testing.T) {
 		label := append([]byte{maxLabelLength + 1}, make([]byte, maxLabelLength+1)...)
 		label = append(label, 0)
-		if got, valid := parseSectionLabel(bytes.NewBuffer(label)); valid {
+		if got, valid := parseSectionLabel(bytes.NewBuffer(label), nil); valid {
 			t.Fatalf("parseSectionLabel() = %q, true; want invalid", got)
 		}
 	})
@@ -274,7 +274,7 @@ func TestLabelAndRecordTruncation(t *testing.T) {
 			label = append(label, make([]byte, length)...)
 		}
 		label = append(label, 0)
-		if got, valid := parseSectionLabel(bytes.NewBuffer(label)); valid {
+		if got, valid := parseSectionLabel(bytes.NewBuffer(label), nil); valid {
 			t.Fatalf("parseSectionLabel() = %q, true; want invalid", got)
 		}
 	})
@@ -297,11 +297,88 @@ func TestLabelAndRecordTruncation(t *testing.T) {
 	})
 }
 
+// cnameResponse is www.wikipedia.org CNAME dyna.wikimedia.org, A 192.0.2.1, where the CNAME
+// target ends with a pointer to the "org" of the question, and the A record name points to the
+// CNAME target: a pointer to a name that itself ends with a pointer.
+func cnameResponse() []byte {
+	message := []byte{
+		0x12, 0x34, 0x81, 0x80,
+		0, 1, 0, 2, 0, 0, 0, 0,
+		3, 'w', 'w', 'w', 9, 'w', 'i', 'k', 'i', 'p', 'e', 'd', 'i', 'a', 3, 'o', 'r', 'g', 0,
+		0, typeA, 0, 1,
+	}
+	const orgOffset = 26
+
+	target := []byte{4, 'd', 'y', 'n', 'a', 9, 'w', 'i', 'k', 'i', 'm', 'e', 'd', 'i', 'a', 0xc0, orgOffset}
+	message = append(message, 0xc0, 0x0c)
+	message = binary.BigEndian.AppendUint16(message, typeCNAME)
+	message = binary.BigEndian.AppendUint16(message, 1)
+	message = binary.BigEndian.AppendUint32(message, 60)
+	message = binary.BigEndian.AppendUint16(message, uint16(len(target)))
+	targetOffset := len(message)
+	message = append(message, target...)
+
+	message = append(message, 0xc0, byte(targetOffset))
+	message = binary.BigEndian.AppendUint16(message, typeA)
+	message = binary.BigEndian.AppendUint16(message, 1)
+	message = binary.BigEndian.AppendUint32(message, 60)
+	message = binary.BigEndian.AppendUint16(message, 4)
+	return append(message, 192, 0, 2, 1)
+}
+
+func TestParseDNSMessageNestedCompression(t *testing.T) {
+	got := parseDNSMessage(cnameResponse())
+	if got == nil {
+		t.Fatal("parseDNSMessage() = nil")
+	}
+	if len(got.answers) != 2 {
+		t.Fatalf("answer count = %d, want 2", len(got.answers))
+	}
+	if got.answers[0].name != "www.wikipedia.org" || got.answers[1].name != "dyna.wikimedia.org" {
+		t.Fatalf("answer names = %q, %q", got.answers[0].name, got.answers[1].name)
+	}
+}
+
+func TestParseSectionLabelCompression(t *testing.T) {
+	base := []byte{1, 'a', 0}
+
+	t.Run("labels followed by a pointer", func(t *testing.T) {
+		data := bytes.NewBuffer([]byte{1, 'b', 0xc0, 0, 0xff})
+		got, valid := parseSectionLabel(data, base)
+		if !valid || got != "b.a" {
+			t.Fatalf("parseSectionLabel() = %q, %v; want b.a", got, valid)
+		}
+		if data.Len() != 1 {
+			t.Fatalf("%d bytes left after the name, want 1", data.Len())
+		}
+	})
+
+	t.Run("pointer loop", func(t *testing.T) {
+		loop := []byte{0xc0, 0}
+		if got, valid := parseSectionLabel(bytes.NewBuffer(loop), loop); valid {
+			t.Fatalf("parseSectionLabel() = %q, true; want invalid", got)
+		}
+	})
+
+	t.Run("pointer without base", func(t *testing.T) {
+		if got, valid := parseSectionLabel(bytes.NewBuffer([]byte{0xc0, 0}), nil); valid {
+			t.Fatalf("parseSectionLabel() = %q, true; want invalid", got)
+		}
+	})
+
+	t.Run("truncated pointer", func(t *testing.T) {
+		if got, valid := parseSectionLabel(bytes.NewBuffer([]byte{1, 'b', 0xc0}), base); valid {
+			t.Fatalf("parseSectionLabel() = %q, true; want invalid", got)
+		}
+	})
+}
+
 func FuzzParseDNSMessage(f *testing.F) {
 	for _, response := range validResponses() {
 		f.Add(response.message)
 		f.Add(response.message[:len(response.message)-1])
 	}
+	f.Add(cnameResponse())
 	f.Add([]byte{0, 1, 0x81, 0x80, 0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0})
 	f.Add([]byte{0, 1, 0x81, 0x80, 0, 1, 0, 1, 0, 0, 0, 0, 63, 'a'})
 
