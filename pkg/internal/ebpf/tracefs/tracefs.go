@@ -97,6 +97,7 @@ func attach(prog *ebpf.Program, opts Options, attachEvent func(*ebpf.Program, Op
 		return nil, errors.New("attaching through tracefs: no probe targets")
 	}
 
+	RemoveStale()
 	groupName, err := randomTraceFSGroup()
 	if err != nil {
 		return nil, err
@@ -200,7 +201,7 @@ func randomTraceFSGroup() (string, error) {
 	if _, err := rand.Read(suffix[:]); err != nil {
 		return "", fmt.Errorf("generating tracefs probe group: %w", err)
 	}
-	return fmt.Sprintf("obi_%x", suffix), nil
+	return fmt.Sprintf("%s_%x", GroupPrefix(), suffix), nil
 }
 
 func traceFSEventCommand(target string, ret bool, group, name string) string {

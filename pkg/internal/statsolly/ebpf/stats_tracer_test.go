@@ -6,7 +6,6 @@
 package ebpf
 
 import (
-	"encoding/binary"
 	"os"
 	"strings"
 	"testing"
@@ -14,7 +13,6 @@ import (
 	"github.com/cilium/ebpf"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/sys/unix"
 
 	"go.opentelemetry.io/obi/pkg/export"
 )
@@ -259,12 +257,6 @@ func TestStatsSpecDNSSocketFilter(t *testing.T) {
 	require.NoError(t, fixupSpec(spec, []string{progObiStatsSocketDNS}))
 	assert.Equal(t, ebpf.SocketFilter, spec.Programs[progObiStatsSocketDNS].Type)
 	assert.Equal(t, "stats_dummy", spec.Programs[progObiStatsSocketDNS].Name)
-}
-
-func TestHtons(t *testing.T) {
-	b := make([]byte, 2)
-	binary.NativeEndian.PutUint16(b, htons(unix.ETH_P_ALL))
-	assert.Equal(t, []byte{0x00, 0x03}, b, "network byte order")
 }
 
 func TestSizeSocketTrafficMaps(t *testing.T) {

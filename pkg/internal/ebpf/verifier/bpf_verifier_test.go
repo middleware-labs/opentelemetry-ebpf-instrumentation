@@ -30,7 +30,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/uprobe"
 	watcherbpf "go.opentelemetry.io/obi/pkg/internal/ebpf/watcher"
 	netollybpf "go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
-	rdnsxdpbpf "go.opentelemetry.io/obi/pkg/internal/rdns/ebpf/xdp"
+	rdnssockbpf "go.opentelemetry.io/obi/pkg/internal/rdns/ebpf/sockfilter"
 	statsolly "go.opentelemetry.io/obi/pkg/internal/statsolly/ebpf"
 )
 
@@ -376,10 +376,8 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		{"ringbuf_metrics_enabled", []any{true, false}},
 	})
 
-	// rdns xdp
-	forEachCombination(t, "rdns/xdp/Bpf", rdnsxdpbpf.LoadBpf, []constOption{
-		{"g_bpf_debug", []any{true, false}},
-	})
+	// rdns socket filter
+	forEachCombination(t, "rdns/sockfilter/Bpf", rdnssockbpf.LoadBpf, nil)
 
 	// statsolly
 	forEachCombination(t, "statsolly/Stats", statsolly.LoadStats, []constOption{

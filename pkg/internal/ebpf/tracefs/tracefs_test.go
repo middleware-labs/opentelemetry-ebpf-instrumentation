@@ -41,7 +41,7 @@ func TestRandomTraceFSGroup(t *testing.T) {
 	group, err := randomTraceFSGroup()
 
 	require.NoError(t, err)
-	assert.Regexp(t, `^obi_[0-9a-f]{16}$`, group)
+	assert.Regexp(t, `^obi_[0-9]+_[0-9a-f]{16}$`, group)
 }
 
 func TestWritableTraceFSMountSkipsReadOnlyMount(t *testing.T) {
