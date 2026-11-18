@@ -135,9 +135,10 @@ func NewReader(
 		rollup = newConnectionRollup()
 	}
 	var peers *peerIndex
-	// the role of a UDP row can depend on its remote socket being on this host
-	udpRole := cfg.UDP() && (emit.Role || emit.ServerPort || cfg.ConnectionRollup)
-	if resolvePeers || udpRole || natTracker != nil {
+	// the role of a UDP row, or of a TCP connection opened before OBI started, can depend on its
+	// remote socket being on this host
+	portsRole := emit.Role || emit.ServerPort || cfg.ConnectionRollup
+	if resolvePeers || portsRole || natTracker != nil {
 		// a closed socket stays known for a while: its peer can close later
 		peers = newPeerIndex(peerTTLIntervals * cfg.ReadInterval)
 	}
@@ -457,41 +458,51 @@ func (r *Reader) roleUsed() bool {
 	return r.emit.Role || r.emit.ServerPort || r.rollup != nil
 }
 
-// connectionRole returns the role of a row when it is used. A TCP connection opened before OBI
-// started has no handshake role: like Datadog's determine_connection_direction, it is the server
-// side when its local port is listening, else the client. A UDP row takes its role from the bound
-// ports, which udpRole corrects.
+// connectionRole returns the role of a row when it is used, corrected by fixedRole when it comes
+// from the ports
 func (r *Reader) connectionRole(k *key, v *row) uint8 {
-	role := uint8(v.Role)
-	if !r.roleUsed() {
+	role, fromPorts := r.portsRole(k, v)
+	if !fromPorts {
 		return role
 	}
-	if k.Protocol == syscall.IPPROTO_UDP {
-		return r.udpRole(k, role)
-	}
-	if ebpf.NetworkTCPHandshakeRoleCode(role) != ebpf.CodeRoleUnknown || k.Protocol != syscall.IPPROTO_TCP {
-		return role
-	}
-	if r.tcpSockets.isListening(k, v.Pid) {
-		return uint8(ebpf.CodeRoleServer)
-	}
-	return uint8(ebpf.CodeRoleClient)
+	return r.fixedRole(k, role)
 }
 
-// udpRole returns the role of a UDP row, corrected like Datadog's fixIncomingConnectionDirection
-// and fixOutgoingConnectionDirection
-func (r *Reader) udpRole(k *key, role uint8) uint8 {
-	fixed, ifIntraHost := r.udpRoleFix(k, role)
+// portsRole returns the role of a row, and whether it comes from the ports and fixedRole corrects
+// it. A UDP row takes its role from the bound ports. A TCP connection opened before OBI started
+// has no handshake role: like Datadog's determine_connection_direction, it is the server side
+// when its local port is listening, else the client. The listening port can be in a process OBI
+// can't read, like one of another PID namespace of this host, so that client role is corrected.
+func (r *Reader) portsRole(k *key, v *row) (role uint8, fromPorts bool) {
+	role = uint8(v.Role)
+	switch {
+	case !r.roleUsed():
+		return role, false
+	case k.Protocol == syscall.IPPROTO_UDP:
+		return role, true
+	case k.Protocol != syscall.IPPROTO_TCP || ebpf.NetworkTCPHandshakeRoleCode(role) != ebpf.CodeRoleUnknown:
+		return role, false
+	case r.tcpSockets.isListening(k, v.Pid):
+		return uint8(ebpf.CodeRoleServer), false
+	default:
+		return uint8(ebpf.CodeRoleClient), true
+	}
+}
+
+// fixedRole returns the role of a row taken from the ports, corrected like Datadog's
+// fixIncomingConnectionDirection and fixOutgoingConnectionDirection
+func (r *Reader) fixedRole(k *key, role uint8) uint8 {
+	fixed, ifIntraHost := r.roleFix(k, role)
 	if ifIntraHost && !r.intraHost(k) {
 		return role
 	}
 	return fixed
 }
 
-// udpRoleFix returns the corrected role of a UDP row, and whether it only applies when the remote
-// socket is on this host. The kernel takes the role from the bound ports: a client can bind its
-// port, and a server port can be bound before its bind is seen.
-func (r *Reader) udpRoleFix(k *key, role uint8) (fixed uint8, ifIntraHost bool) {
+// roleFix returns the corrected role of a row taken from the ports, and whether it only applies
+// when the remote socket is on this host. A UDP client can bind its port, and a server port can
+// be bound before its bind is seen. A TCP server port can listen in a process OBI can't read.
+func (r *Reader) roleFix(k *key, role uint8) (fixed uint8, ifIntraHost bool) {
 	localEphemeral, remoteEphemeral := r.ephemeral(k.Conn.S_port), r.ephemeral(k.Conn.D_port)
 	switch ebpf.NetworkTCPHandshakeRoleCode(role) {
 	case ebpf.CodeRoleServer:
@@ -523,10 +534,11 @@ func (r *Reader) intraHost(k *key) bool {
 // roleNeedsAllRows tells whether the role of a row depends on its remote socket being on this
 // host: the row is then handled after the map read, as its remote socket can come later
 func (r *Reader) roleNeedsAllRows(k *key, v *row) bool {
-	if k.Protocol != syscall.IPPROTO_UDP || !r.roleUsed() {
+	role, fromPorts := r.portsRole(k, v)
+	if !fromPorts {
 		return false
 	}
-	_, ifIntraHost := r.udpRoleFix(k, uint8(v.Role))
+	_, ifIntraHost := r.roleFix(k, role)
 	return ifIntraHost
 }
 

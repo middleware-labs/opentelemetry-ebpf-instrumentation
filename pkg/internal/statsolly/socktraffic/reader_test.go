@@ -375,6 +375,65 @@ func TestReaderRole(t *testing.T) {
 	assert.Equal(t, ebpf.StatsTcpHandshakeRoleRoleUnknown, v.Role, "the row is not changed")
 }
 
+func TestReaderTCPRoleOfAServerNotReadable(t *testing.T) {
+	now := time.Hour
+	r, _ := testReader(t, &fakeMap{batchLen: 10}, &now)
+	r.tcpSockets = newTCPSockets(t.TempDir())
+	r.peers = newPeerIndex(time.Minute)
+	r.emit.Role = true
+	// a pod of this host, whose client socket is known
+	podClient := tcpConnKey("10.244.0.5", 41002, "10.244.0.7", 8080)
+	r.peers.add(&podClient, &row{}, now)
+
+	// opened before OBI started, by processes whose ports OBI can't read, like the processes of
+	// another PID namespace of this host
+	for _, tt := range []struct {
+		name string
+		k    key
+		want ebpf.NetworkTCPHandshakeRoleCode
+	}{
+		{"local server to a local client", tcpConnKey("127.0.0.1", 2379, "127.0.0.1", 44700), ebpf.CodeRoleServer},
+		{"server of a client of this host", tcpConnKey("10.244.0.7", 8080, "10.244.0.5", 41002), ebpf.CodeRoleServer},
+		{"local port to a remote host", tcpConnKey("10.0.0.1", 8080, "10.0.0.9", 44700), ebpf.CodeRoleClient},
+		{"local client to a local server", tcpConnKey("127.0.0.1", 44700, "127.0.0.1", 2379), ebpf.CodeRoleClient},
+		{"fixed ports on both sides", tcpConnKey("127.0.0.1", 2379, "127.0.0.1", 2380), ebpf.CodeRoleClient},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			v := row{Pid: 555}
+			assert.Equal(t, uint8(tt.want), r.connectionRole(&tt.k, &v))
+		})
+	}
+
+	k := tcpConnKey("127.0.0.1", 2379, "127.0.0.1", 44700)
+	assert.False(t, r.roleNeedsAllRows(&k, &row{Pid: 555, Role: ebpf.StatsTcpHandshakeRoleRoleClient}),
+		"a handshake role is not corrected")
+}
+
+func TestReaderTCPRoleOfTheRemoteSocketReadLater(t *testing.T) {
+	now := time.Hour
+	m := &fakeMap{batchLen: 1}
+	r, _ := testReader(t, m, &now)
+	r.tcpSockets = newTCPSockets(t.TempDir())
+	r.peers = newPeerIndex(time.Minute)
+	r.emit.Role = true
+
+	// the server row of two pods of this host comes before the row of its client
+	server := tcpConnKey("10.244.0.7", 8080, "10.244.0.5", 41002)
+	client := tcpConnKey("10.244.0.5", 41002, "10.244.0.7", 8080)
+	m.set(server, row{Pid: 555, RxBytes: 10, RxPackets: 1, LastUpdateNs: uint64(now)})
+	m.set(client, row{Pid: 556, TxBytes: 10, TxPackets: 1, LastUpdateNs: uint64(now)})
+
+	stats := r.readMap(nil)
+	require.Len(t, stats, 2)
+	for _, s := range stats {
+		want := ebpf.CodeRoleClient
+		if s.CommonAttrs.SrcPort == 8080 {
+			want = ebpf.CodeRoleServer
+		}
+		assert.Equal(t, uint8(want), s.SocketTraffic.Role, "local port %d", s.CommonAttrs.SrcPort)
+	}
+}
+
 func udpConnKey(local string, localPort uint16, remote string, remotePort uint16) key {
 	k := tcpConnKey(local, localPort, remote, remotePort)
 	k.Protocol = syscall.IPPROTO_UDP
