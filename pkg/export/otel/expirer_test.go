@@ -102,6 +102,35 @@ func TestExpirerForRecordReusesTheSetOfAnExistingSeries(t *testing.T) {
 	value, ok := other.Value("attr.0")
 	require.True(t, ok)
 	assert.Equal(t, "b", value.AsString())
+
+	// the records reuse the buffers of the expirer: the stored series keep their own key
+	_, afterOther := exp.ForRecord(manyAttrsRecord("a"))
+	assert.True(t, first.Equals(&afterOther))
+	assert.Len(t, exp.entries.All(), 2)
+}
+
+func TestExpirerForRecordSkipsEmptyAttributes(t *testing.T) {
+	now := time.Unix(100, 0)
+	exp := NewExpirer[map[string]string, *removedMetric, int64](
+		t.Context(), &removedMetric{}, []attributes.Field[map[string]string, attribute.KeyValue]{
+			{Get: func(record map[string]string) attribute.KeyValue { return attribute.String("src", record["src"]) }},
+			{Get: func(record map[string]string) attribute.KeyValue { return attribute.String("dst", record["dst"]) }},
+		}, func() time.Time { return now }, time.Minute,
+	)
+
+	_, attrs := exp.ForRecord(map[string]string{"src": "frontend"}, attribute.String("extra", ""), attribute.Int("port", 0))
+	assert.Equal(t, 2, attrs.Len())
+	_, ok := attrs.Value("dst")
+	assert.False(t, ok, "an empty attribute is omitted")
+	_, ok = attrs.Value("extra")
+	assert.False(t, ok, "an empty extra attribute is omitted")
+	port, ok := attrs.Value("port")
+	require.True(t, ok, "a zero number is a value")
+	assert.Equal(t, int64(0), port.AsInt64())
+
+	// the key carries the attribute names: an omitted src and an omitted dst are two series
+	_, onlyDst := exp.ForRecord(map[string]string{"dst": "frontend"})
+	assert.False(t, attrs.Equals(&onlyDst))
 }
 
 // BenchmarkExpirerForRecordExistingSeries measures the record of a series that already exists,

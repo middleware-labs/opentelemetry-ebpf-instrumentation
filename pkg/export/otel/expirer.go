@@ -42,6 +42,11 @@ type Expirer[Record any, Metric removableMetric[ValType], ValType any] struct {
 	clock          expire.Clock
 	lastExpiration time.Time
 	ttl            time.Duration
+
+	// buffers of recordAttributes, reused by each ForRecord call: like lastExpiration, they
+	// expect ForRecord to be called from one goroutine
+	keyVals     []attribute.KeyValue
+	labelValues []string
 }
 
 // NewExpirer creates an expirer that wraps data points of a given type. Its labeled instances are dropped
@@ -92,16 +97,17 @@ func (ex *Expirer[Record, Metric, ValType]) ForRecord(r Record, extraAttrs ...at
 }
 
 // recordAttributes returns the record's attributes and the cache key that
-// identifies them. Getters omit attributes they have no value for, so the key
-// carries each attribute's name next to its value: otherwise two records that
-// omit different attributes could share a key.
+// identifies them, in the buffers of the Expirer: they are valid until the next
+// call. Getters omit attributes they have no value for, and attributes with an
+// empty value are omitted too, so the key carries each attribute's name next to
+// its value: otherwise two records that omit different attributes could share a key.
 func (ex *Expirer[Record, Metric, ValType]) recordAttributes(m Record, extraAttrs ...attribute.KeyValue) ([]attribute.KeyValue, []string) {
-	keyVals := make([]attribute.KeyValue, 0, len(ex.attrs)+len(extraAttrs))
-	key := make([]string, 0, 2*(len(ex.attrs)+len(extraAttrs)))
+	keyVals := ex.keyVals[:0]
+	key := ex.labelValues[:0]
 
 	for _, attr := range ex.attrs {
 		kv := sanitizeKeyValue(attr.Get(m))
-		if !kv.Valid() {
+		if !kv.Valid() || isEmptyString(kv) {
 			continue
 		}
 		keyVals = append(keyVals, kv)
@@ -109,11 +115,19 @@ func (ex *Expirer[Record, Metric, ValType]) recordAttributes(m Record, extraAttr
 	}
 	for i := range extraAttrs {
 		kv := sanitizeKeyValue(extraAttrs[i])
+		if isEmptyString(kv) {
+			continue
+		}
 		keyVals = append(keyVals, kv)
 		key = append(key, string(kv.Key), kv.Value.Emit())
 	}
 
+	ex.keyVals, ex.labelValues = keyVals, key
 	return keyVals, key
+}
+
+func isEmptyString(kv attribute.KeyValue) bool {
+	return kv.Value.Type() == attribute.STRING && kv.Value.AsString() == ""
 }
 
 func sanitizeKeyValue(kv attribute.KeyValue) attribute.KeyValue {
