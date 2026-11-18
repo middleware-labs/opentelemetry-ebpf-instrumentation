@@ -102,6 +102,11 @@ func TestExpirerForRecordReusesTheSetOfAnExistingSeries(t *testing.T) {
 	value, ok := other.Value("attr.0")
 	require.True(t, ok)
 	assert.Equal(t, "b", value.AsString())
+
+	// the records reuse the buffers of the expirer: the stored series keep their own key
+	_, afterOther := exp.ForRecord(manyAttrsRecord("a"))
+	assert.True(t, first.Equals(&afterOther))
+	assert.Len(t, exp.entries.All(), 2)
 }
 
 // BenchmarkExpirerForRecordExistingSeries measures the record of a series that already exists,

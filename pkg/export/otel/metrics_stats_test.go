@@ -11,14 +11,17 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/instrumentation"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/sdk/resource"
 
 	"go.opentelemetry.io/obi/pkg/export/attributes"
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	otelmetric "go.opentelemetry.io/obi/pkg/export/otel/metric"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
+	"go.opentelemetry.io/obi/pkg/internal/statsolly/ebpf"
 )
 
 var defaultStatRttInstrument = otelmetric.Instrument{
@@ -128,4 +131,31 @@ func TestDeltaExporter_KeepsOtherInstrumentsTemporality(t *testing.T) {
 	assert.Equal(t, metricdata.DeltaTemporality, exporter.Temporality(sdkmetric.InstrumentKindHistogram))
 	assert.Equal(t, metricdata.CumulativeTemporality, exporter.Temporality(sdkmetric.InstrumentKindGauge))
 	assert.Equal(t, metricdata.CumulativeTemporality, exporter.Temporality(sdkmetric.InstrumentKindUpDownCounter))
+}
+
+func TestStatGettersOmitEmptyAttributes(t *testing.T) {
+	now := time.Unix(100, 0)
+	exp := NewExpirer[*ebpf.Stat, *removedMetric, int64](t.Context(), &removedMetric{},
+		statGetters([]attr.Name{attr.SrcName, attr.DstName, attr.SrcZone, attr.ServerPort}),
+		func() time.Time { return now }, time.Minute)
+
+	stat := &ebpf.Stat{}
+	stat.CommonAttrs.SrcName = "frontend"
+	_, attrs := exp.ForRecord(stat)
+
+	assert.Equal(t, 2, attrs.Len())
+	name, ok := attrs.Value(attribute.Key(attr.SrcName))
+	require.True(t, ok)
+	assert.Equal(t, "frontend", name.AsString())
+	_, ok = attrs.Value(attribute.Key(attr.DstName))
+	assert.False(t, ok, "an empty attribute is omitted")
+	port, ok := attrs.Value(attribute.Key(attr.ServerPort))
+	require.True(t, ok, "a zero number is a value")
+	assert.Equal(t, int64(0), port.AsInt64())
+
+	// the key carries the attribute names: an empty src.name and an empty dst.name are two series
+	other := &ebpf.Stat{}
+	other.CommonAttrs.DstName = "frontend"
+	_, otherAttrs := exp.ForRecord(other)
+	assert.False(t, attrs.Equals(&otherAttrs))
 }

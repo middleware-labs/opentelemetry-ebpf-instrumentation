@@ -143,6 +143,24 @@ func (e deltaExporter) Temporality(kind sdkmetric.InstrumentKind) metricdata.Tem
 	}
 }
 
+// statGetters returns the OTEL attribute getters of a stat metric. A network stat has many
+// attributes that only some connections have a value for: an attribute with an empty value is
+// omitted, like one its getter has no value for.
+func statGetters(names []attr.Name) []attributes.Field[*ebpf.Stat, attribute.KeyValue] {
+	getters := attributes.OpenTelemetryGetters(ebpf.StatGetters, names)
+	for i := range getters {
+		get := getters[i].Get
+		getters[i].Get = func(s *ebpf.Stat) attribute.KeyValue {
+			kv := get(s)
+			if kv.Value.Type() == attribute.STRING && kv.Value.AsString() == "" {
+				return attribute.KeyValue{}
+			}
+			return kv
+		}
+	}
+	return getters
+}
+
 func newStatMetricsExporter(
 	ctx context.Context,
 	ctxInfo *global.ContextInfo,
@@ -187,9 +205,7 @@ func newStatMetricsExporter(
 		}
 
 		log.Debug("restricting attributes not in this list", "attributes", cfg.SelectorCfg.SelectionCfg)
-		attrs := attributes.OpenTelemetryGetters(
-			ebpf.StatGetters,
-			attrProv.For(attributes.StatTCPRtt))
+		attrs := statGetters(attrProv.For(attributes.StatTCPRtt))
 
 		nme.tcpRtt = NewExpirer[*ebpf.Stat, metric2.Float64Histogram, float64](ctx, tcpRtt, attrs, timeNow, cfg.Metrics.TTL)
 	}
@@ -203,9 +219,7 @@ func newStatMetricsExporter(
 			return nil, err
 		}
 
-		attrs := attributes.OpenTelemetryGetters(
-			ebpf.StatGetters,
-			attrProv.For(attributes.StatTCPRetransmits))
+		attrs := statGetters(attrProv.For(attributes.StatTCPRetransmits))
 
 		nme.tcpRetransmits = NewExpirer[*ebpf.Stat, metric2.Int64Counter, int64](ctx, tcpRetransmits, attrs, timeNow, cfg.Metrics.TTL)
 	}
@@ -219,9 +233,7 @@ func newStatMetricsExporter(
 			return nil, err
 		}
 
-		attrs := attributes.OpenTelemetryGetters(
-			ebpf.StatGetters,
-			attrProv.For(attributes.StatTCPIo))
+		attrs := statGetters(attrProv.For(attributes.StatTCPIo))
 
 		nme.tcpIo = NewExpirer[*ebpf.Stat, metric2.Int64Counter, int64](ctx, tcpIo, attrs, timeNow, cfg.Metrics.TTL)
 	}
@@ -235,9 +247,7 @@ func newStatMetricsExporter(
 			return nil, err
 		}
 
-		attrs := attributes.OpenTelemetryGetters(
-			ebpf.StatGetters,
-			attrProv.For(attributes.StatTCPFailedConnections))
+		attrs := statGetters(attrProv.For(attributes.StatTCPFailedConnections))
 
 		nme.tcpFailedConnections = NewExpirer[*ebpf.Stat, metric2.Int64Counter, int64](ctx, tcpFailedConnections, attrs, timeNow, cfg.Metrics.TTL)
 	}
@@ -251,9 +261,7 @@ func newStatMetricsExporter(
 			return nil, err
 		}
 
-		attrs := attributes.OpenTelemetryGetters(
-			ebpf.StatGetters,
-			attrProv.For(attributes.StatTCPSuccessfulConnections))
+		attrs := statGetters(attrProv.For(attributes.StatTCPSuccessfulConnections))
 
 		nme.tcpSuccessfulConnections = NewExpirer[*ebpf.Stat, metric2.Int64Counter, int64](ctx, tcpSuccessfulConnections, attrs, timeNow, cfg.Metrics.TTL)
 	}
@@ -270,9 +278,7 @@ func newStatMetricsExporter(
 			return nil, err
 		}
 
-		attrs := attributes.OpenTelemetryGetters(
-			ebpf.StatGetters,
-			attrProv.For(attributes.StatTCPClosedConnections))
+		attrs := statGetters(attrProv.For(attributes.StatTCPClosedConnections))
 
 		nme.tcpClosedConnections = NewExpirer[*ebpf.Stat, metric2.Int64Counter, int64](ctx, tcpClosedConnections, attrs, timeNow, cfg.Metrics.TTL)
 	}
@@ -289,9 +295,7 @@ func newStatMetricsExporter(
 			return nil, err
 		}
 
-		attrs := attributes.OpenTelemetryGetters(
-			ebpf.StatGetters,
-			attrProv.For(attributes.StatTCPFlowControlEvents))
+		attrs := statGetters(attrProv.For(attributes.StatTCPFlowControlEvents))
 
 		nme.tcpFlowControl = NewExpirer[*ebpf.Stat, metric2.Int64Counter, int64](ctx, tcpFlowControl, attrs, timeNow, cfg.Metrics.TTL)
 	}
@@ -305,7 +309,7 @@ func newStatMetricsExporter(
 				log.Error("creating stats tcp congestion counter", "metric", name.OTEL, "error", err)
 				return nil, err
 			}
-			attrs := attributes.OpenTelemetryGetters(ebpf.StatGetters, attrProv.For(name))
+			attrs := statGetters(attrProv.For(name))
 			return NewExpirer[*ebpf.Stat, metric2.Int64Counter, int64](ctx, counter, attrs, timeNow, cfg.Metrics.TTL), nil
 		}
 
@@ -335,9 +339,7 @@ func newStatMetricsExporter(
 			return nil, err
 		}
 
-		attrs := attributes.OpenTelemetryGetters(
-			ebpf.StatGetters,
-			attrProv.For(attributes.StatDNSLookupDuration))
+		attrs := statGetters(attrProv.For(attributes.StatDNSLookupDuration))
 
 		nme.dnsLookupDuration = NewExpirer[*ebpf.Stat, metric2.Float64Histogram, float64](ctx, dnsLookupDuration, attrs, timeNow, cfg.Metrics.TTL)
 	}
@@ -351,7 +353,7 @@ func newStatMetricsExporter(
 				log.Error("creating stats socket traffic counter", "metric", name.OTEL, "error", err)
 				return nil, err
 			}
-			attrs := attributes.OpenTelemetryGetters(ebpf.StatGetters, attrProv.For(name))
+			attrs := statGetters(attrProv.For(name))
 			return NewExpirer[*ebpf.Stat, metric2.Int64Counter, int64](ctx, counter, attrs, timeNow, cfg.Metrics.TTL), nil
 		}
 
@@ -376,9 +378,7 @@ func newStatMetricsExporter(
 			return nil, err
 		}
 
-		attrs := attributes.OpenTelemetryGetters(
-			ebpf.StatGetters,
-			attrProv.For(attributes.StatTCPResets))
+		attrs := statGetters(attrProv.For(attributes.StatTCPResets))
 
 		nme.tcpResets = NewExpirer[*ebpf.Stat, metric2.Int64Counter, int64](ctx, tcpResets, attrs, timeNow, cfg.Metrics.TTL)
 	}
