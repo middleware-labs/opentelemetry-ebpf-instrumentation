@@ -98,16 +98,16 @@ func (ex *Expirer[Record, Metric, ValType]) ForRecord(r Record, extraAttrs ...at
 
 // recordAttributes returns the record's attributes and the cache key that
 // identifies them, in the buffers of the Expirer: they are valid until the next
-// call. Getters omit attributes they have no value for, and attributes with an
-// empty value are omitted too, so the key carries each attribute's name next to
-// its value: otherwise two records that omit different attributes could share a key.
+// call. Getters omit attributes they have no value for, so the key carries each
+// attribute's name next to its value: otherwise two records that omit different
+// attributes could share a key.
 func (ex *Expirer[Record, Metric, ValType]) recordAttributes(m Record, extraAttrs ...attribute.KeyValue) ([]attribute.KeyValue, []string) {
 	keyVals := ex.keyVals[:0]
 	key := ex.labelValues[:0]
 
 	for _, attr := range ex.attrs {
 		kv := sanitizeKeyValue(attr.Get(m))
-		if !kv.Valid() || isEmptyString(kv) {
+		if !kv.Valid() {
 			continue
 		}
 		keyVals = append(keyVals, kv)
@@ -115,19 +115,12 @@ func (ex *Expirer[Record, Metric, ValType]) recordAttributes(m Record, extraAttr
 	}
 	for i := range extraAttrs {
 		kv := sanitizeKeyValue(extraAttrs[i])
-		if isEmptyString(kv) {
-			continue
-		}
 		keyVals = append(keyVals, kv)
 		key = append(key, string(kv.Key), kv.Value.Emit())
 	}
 
 	ex.keyVals, ex.labelValues = keyVals, key
 	return keyVals, key
-}
-
-func isEmptyString(kv attribute.KeyValue) bool {
-	return kv.Value.Type() == attribute.STRING && kv.Value.AsString() == ""
 }
 
 func sanitizeKeyValue(kv attribute.KeyValue) attribute.KeyValue {
