@@ -83,18 +83,19 @@ func (ex *Expirer[Record, Metric, ValType]) ForRecord(r Record, extraAttrs ...at
 		ex.removeOutdated(ex.ctx)
 		ex.lastExpiration = now
 	}
-	recordAttrs, attrValues := ex.recordAttributes(r, extraAttrs...)
+	keyVals, attrValues := ex.recordAttributes(r, extraAttrs...)
 	return ex.metric, ex.entries.GetOrCreate(attrValues, func() attribute.Set {
 		ex.log.Debug("storing new metric label set", "labelValues", attrValues)
-		return recordAttrs
+		// built only for a new label set: building a set is expensive, and an existing one is reused
+		return attribute.NewSet(keyVals...)
 	})
 }
 
-// recordAttributes returns the record's attribute set and the cache key that
-// identifies it. Getters omit attributes they have no value for, so the key
+// recordAttributes returns the record's attributes and the cache key that
+// identifies them. Getters omit attributes they have no value for, so the key
 // carries each attribute's name next to its value: otherwise two records that
 // omit different attributes could share a key.
-func (ex *Expirer[Record, Metric, ValType]) recordAttributes(m Record, extraAttrs ...attribute.KeyValue) (attribute.Set, []string) {
+func (ex *Expirer[Record, Metric, ValType]) recordAttributes(m Record, extraAttrs ...attribute.KeyValue) ([]attribute.KeyValue, []string) {
 	keyVals := make([]attribute.KeyValue, 0, len(ex.attrs)+len(extraAttrs))
 	key := make([]string, 0, 2*(len(ex.attrs)+len(extraAttrs)))
 
@@ -112,7 +113,7 @@ func (ex *Expirer[Record, Metric, ValType]) recordAttributes(m Record, extraAttr
 		key = append(key, string(kv.Key), kv.Value.Emit())
 	}
 
-	return attribute.NewSet(keyVals...), key
+	return keyVals, key
 }
 
 func sanitizeKeyValue(kv attribute.KeyValue) attribute.KeyValue {
