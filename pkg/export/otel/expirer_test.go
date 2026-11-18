@@ -5,6 +5,7 @@ package otel
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -61,6 +62,59 @@ func TestExpirerForRecordRemovesExpiredMetrics(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "frontend-orders", value.AsString())
 	require.Equal(t, 1, metric.removals)
+}
+
+// manyAttrsCount is the attribute count of a network stat: more than 10 attributes take the
+// reflection path of attribute.NewSet
+const manyAttrsCount = 40
+
+// manyAttrsExpirer returns an expirer of records with manyAttrsCount attributes
+func manyAttrsExpirer(ctx context.Context) *Expirer[[]string, *removedMetric, int64] {
+	fields := make([]attributes.Field[[]string, attribute.KeyValue], manyAttrsCount)
+	for i := range fields {
+		key := attribute.Key(fmt.Sprintf("attr.%d", i))
+		fields[i] = attributes.Field[[]string, attribute.KeyValue]{
+			Get: func(record []string) attribute.KeyValue { return key.String(record[i]) },
+		}
+	}
+	now := time.Unix(100, 0)
+	return NewExpirer[[]string, *removedMetric, int64](ctx, &removedMetric{}, fields, func() time.Time { return now }, time.Minute)
+}
+
+func manyAttrsRecord(value string) []string {
+	record := make([]string, manyAttrsCount)
+	for i := range record {
+		record[i] = value
+	}
+	return record
+}
+
+func TestExpirerForRecordReusesTheSetOfAnExistingSeries(t *testing.T) {
+	exp := manyAttrsExpirer(t.Context())
+
+	_, first := exp.ForRecord(manyAttrsRecord("a"))
+	_, again := exp.ForRecord(manyAttrsRecord("a"))
+	_, other := exp.ForRecord(manyAttrsRecord("b"))
+
+	assert.Equal(t, manyAttrsCount, first.Len())
+	assert.True(t, first.Equals(&again), "the set of the existing series")
+	assert.False(t, first.Equals(&other), "a new series")
+	value, ok := other.Value("attr.0")
+	require.True(t, ok)
+	assert.Equal(t, "b", value.AsString())
+}
+
+// BenchmarkExpirerForRecordExistingSeries measures the record of a series that already exists,
+// the usual case of a metric reported at each read
+func BenchmarkExpirerForRecordExistingSeries(b *testing.B) {
+	exp := manyAttrsExpirer(b.Context())
+	record := manyAttrsRecord("value")
+	exp.ForRecord(record)
+
+	b.ReportAllocs()
+	for b.Loop() {
+		exp.ForRecord(record)
+	}
 }
 
 func TestExpirerExpireRemovesMetricsWithoutAnotherRecord(t *testing.T) {
