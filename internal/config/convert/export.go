@@ -359,6 +359,7 @@ func captureNetwork(cfg *obi.Config) schema.CaptureNetwork {
 				ConnectionRollup: cfg.Stats.SocketTraffic.ConnectionRollup,
 				TCPMetrics:       cfg.Stats.SocketTraffic.TCPMetrics,
 			},
+			CollapseInboundPublic: cfg.Stats.CollapseInboundPublic,
 			Diagnostics: schema.StatsDiagnostics{
 				PrintStats: cfg.Stats.Print,
 			},

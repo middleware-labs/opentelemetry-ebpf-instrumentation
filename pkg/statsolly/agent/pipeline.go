@@ -23,6 +23,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/procmeta"
 	"go.opentelemetry.io/obi/pkg/internal/statsolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/internal/statsolly/export"
+	"go.opentelemetry.io/obi/pkg/internal/statsolly/inbound"
 	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
@@ -139,8 +140,12 @@ func (s *Stats) buildPipeline(ctx, readerCtx context.Context) (*swarm.Runner, er
 	swi.Add(cidr.DecoratorProvider(s.cfg.Stats.CIDRs, statAttrs, geoIPDecoratedStats, cidrDecoratedStats),
 		swarm.WithID("CIDRDecorator"))
 
+	collapsedStats := msgh.QueueFromConfig[[]*ebpf.Stat](s.cfg, s.ctxInfo.Metrics, "collapsedStats")
+	swi.Add(inbound.CollapseProvider(s.cfg.Stats.CollapseInboundPublic, cidrDecoratedStats, collapsedStats),
+		swarm.WithID("InboundPublicCollapser"))
+
 	decoratedStats := msgh.QueueFromConfig[[]*ebpf.Stat](s.cfg, s.ctxInfo.Metrics, "decoratedStats")
-	swi.Add(decorate.Decorate(s.agentIP, statAttrs, cidrDecoratedStats, decoratedStats),
+	swi.Add(decorate.Decorate(s.agentIP, statAttrs, collapsedStats, decoratedStats),
 		swarm.WithID("StatsDecorator"))
 
 	dynamicFilteredStats := msgh.QueueFromConfig[[]*ebpf.Stat](s.cfg, s.ctxInfo.Metrics, "dynamicFilteredStats")
