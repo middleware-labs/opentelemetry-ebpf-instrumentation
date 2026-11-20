@@ -492,6 +492,9 @@ func (r *Reader) portsRole(k *key, v *row) (role uint8, fromPorts bool) {
 // fixedRole returns the role of a row taken from the ports, corrected like Datadog's
 // fixIncomingConnectionDirection and fixOutgoingConnectionDirection
 func (r *Reader) fixedRole(k *key, role uint8) uint8 {
+	if r.udpServerOfDNAT(k) {
+		return uint8(ebpf.CodeRoleServer)
+	}
 	fixed, ifIntraHost := r.roleFix(k, role)
 	if ifIntraHost && !r.intraHost(k) {
 		return role
@@ -518,6 +521,20 @@ func (r *Reader) roleFix(k *key, role uint8) (fixed uint8, ifIntraHost bool) {
 		}
 	}
 	return role, false
+}
+
+// udpServerOfDNAT tells whether a UDP row with ephemeral ports on both sides is the server side
+// of a DNAT from a port that isn't ephemeral, which the ports alone can't tell. Docker's
+// embedded DNS is one: its clients send to 127.0.0.11:53, and the DNAT sends that to the random
+// port of dockerd's socket.
+func (r *Reader) udpServerOfDNAT(k *key) bool {
+	if r.nat == nil || k.Protocol != syscall.IPPROTO_UDP ||
+		!r.ephemeral(k.Conn.S_port) || !r.ephemeral(k.Conn.D_port) {
+		return false
+	}
+	n := r.nat.NAT(k, false)
+	return n != nil && n.Pre.DstAddr == k.Conn.D_addr && n.Pre.DstPort == k.Conn.D_port &&
+		!r.ephemeral(n.Pre.SrcPort)
 }
 
 func (r *Reader) ephemeral(port uint16) bool {
