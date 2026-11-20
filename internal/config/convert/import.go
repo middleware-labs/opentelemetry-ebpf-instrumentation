@@ -1849,6 +1849,7 @@ func applyFullV2NetworkStats(cfg *obi.Config, stats schema.NetworkStats) {
 	cfg.Filters.Stats = attributeFilterMap(stats.Filters.Traces)
 	applyFullV2StatsEnrichment(cfg, stats.Enrichment)
 	applyV2StatsSocketTraffic(cfg, stats.SocketTraffic)
+	cfg.Stats.CollapseInboundPublic = stats.CollapseInboundPublic
 	cfg.Stats.Print = stats.Diagnostics.PrintStats
 }
 
@@ -1872,6 +1873,9 @@ func applyPartialV2NetworkStats(cfg *obi.Config, stats schema.NetworkStats) {
 		applyPartialV2StatsEnrichment(cfg, stats.Enrichment)
 	}
 	applyV2StatsSocketTraffic(cfg, stats.SocketTraffic)
+	if stats.CollapseInboundPublic {
+		cfg.Stats.CollapseInboundPublic = true
+	}
 	if stats.Diagnostics.PrintStats {
 		cfg.Stats.Print = true
 	}

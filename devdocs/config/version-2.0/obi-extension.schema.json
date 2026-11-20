@@ -2334,6 +2334,11 @@
                   "default": false
                 }
               }
+            },
+            "collapse_inbound_public": {
+              "type": "boolean",
+              "default": false,
+              "description": "Reports the public address of the clients of the servers of this host as external, in dst.address, dst.name and dst.pre_nat.address: the clients on the internet of a server are then one series instead of one per client."
             }
           }
         }

@@ -201,6 +201,9 @@ type Stat struct {
 	// NAT is the address translation of the connection of a socket traffic row, nil without NAT.
 	// The address and port attributes report its endpoints after NAT.
 	NAT *NAT `json:"-"`
+	// DstExternal and DstPreNATExternal report the remote address, after and before NAT, as
+	// ExternalAddress: they are public addresses of the clients of a server
+	DstExternal, DstPreNATExternal bool `json:"-"`
 
 	// Attrs of the flow record: source/destination, OBI IP, etc...
 	CommonAttrs pipe.CommonAttrs

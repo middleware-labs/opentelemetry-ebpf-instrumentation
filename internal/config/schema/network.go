@@ -296,6 +296,9 @@ type NetworkStats struct {
 	SocketTraffic        StatsSocketTraffic `yaml:"socket_traffic"`
 	Diagnostics          StatsDiagnostics   `yaml:"diagnostics"`
 	AdditionalProperties map[string]any     `yaml:",inline"`
+
+	// CollapseInboundPublic reports the public addresses of the clients of a server as one.
+	CollapseInboundPublic bool `yaml:"collapse_inbound_public"`
 }
 
 // StatsSocketTraffic describes the capture of the socket_bytes and socket_packets stats families.

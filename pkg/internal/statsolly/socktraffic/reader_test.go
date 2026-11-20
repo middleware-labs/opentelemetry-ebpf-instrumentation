@@ -479,6 +479,54 @@ func TestReaderUDPRole(t *testing.T) {
 	assert.Equal(t, uint8(client), r.connectionRole(&k, &row{Role: client}), "the role is not used")
 }
 
+func TestReaderUDPRoleOfTheServerSideOfADNAT(t *testing.T) {
+	now := time.Hour
+	r, _ := testReader(t, &fakeMap{batchLen: 10}, &now)
+	r.emit.Role, r.emit.ServerPort = true, true
+	nat := fakeNAT{}
+	setNAT(r, nat)
+	client := row{Role: ebpf.StatsTcpHandshakeRoleRoleClient}
+	roleOf := func(k *key) ebpf.NetworkTCPHandshakeRoleCode {
+		return ebpf.NetworkTCPHandshakeRoleCode(r.connectionRole(k, &client))
+	}
+
+	// Docker's embedded DNS: the app sent to 127.0.0.11:53, the DNAT sent it to dockerd's port
+	dockerd := udpConnKey("127.0.0.11", 46000, "127.0.0.1", 50000)
+	nat[dockerd] = &ebpf.NAT{
+		Pre:  endpointsOf("127.0.0.11", 53, "127.0.0.1", 50000),
+		Post: endpointsOf("127.0.0.11", 46000, "127.0.0.1", 50000),
+	}
+	assert.Equal(t, ebpf.CodeRoleServer, roleOf(&dockerd))
+	stats := r.rowStats(nil, &dockerd, &client, r.connectionRole(&dockerd, &client), totals{txBytes: 10}, false)
+	require.Len(t, stats, 1)
+	assert.Equal(t, uint16(46000), stats[0].ServerPort, "dockerd's port, the same for all its clients")
+	assert.Equal(t, "53", attrValue(t, stats[0], attr.ServerPreNATPort))
+
+	app := udpConnKey("127.0.0.1", 50000, "127.0.0.11", 53)
+	nat[app] = &ebpf.NAT{
+		Pre:  endpointsOf("127.0.0.1", 50000, "127.0.0.11", 53),
+		Post: endpointsOf("127.0.0.1", 50000, "127.0.0.11", 46000),
+	}
+	assert.Equal(t, ebpf.CodeRoleClient, roleOf(&app), "the client side of the DNAT")
+
+	noNAT := udpConnKey("127.0.0.11", 46001, "127.0.0.1", 50001)
+	assert.Equal(t, ebpf.CodeRoleClient, roleOf(&noNAT))
+
+	fromEphemeral := udpConnKey("127.0.0.11", 46002, "127.0.0.1", 50002)
+	nat[fromEphemeral] = &ebpf.NAT{
+		Pre:  endpointsOf("127.0.0.11", 40000, "127.0.0.1", 50002),
+		Post: endpointsOf("127.0.0.11", 46002, "127.0.0.1", 50002),
+	}
+	assert.Equal(t, ebpf.CodeRoleClient, roleOf(&fromEphemeral), "a DNAT from an ephemeral port")
+
+	remoteTranslated := udpConnKey("10.0.0.1", 46003, "10.0.0.9", 50003)
+	nat[remoteTranslated] = &ebpf.NAT{
+		Pre:  endpointsOf("10.0.0.1", 53, "192.168.0.9", 50003),
+		Post: endpointsOf("10.0.0.1", 46003, "10.0.0.9", 50003),
+	}
+	assert.Equal(t, ebpf.CodeRoleClient, roleOf(&remoteTranslated), "the remote side is translated too")
+}
+
 func TestReaderUDPRoleOfTheRemoteSocketReadLater(t *testing.T) {
 	now := time.Hour
 	m := &fakeMap{batchLen: 1}

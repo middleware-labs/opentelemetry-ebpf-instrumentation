@@ -533,6 +533,7 @@ extensions:
             tcp_metrics: false
           diagnostics:
             print_stats: false
+          collapse_inbound_public: false
 
       # limits constrains cardinality and memory growth during capture.
       limits:

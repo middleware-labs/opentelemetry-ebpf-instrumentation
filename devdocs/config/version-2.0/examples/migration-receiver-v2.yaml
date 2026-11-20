@@ -328,6 +328,7 @@ network:
                     ttl: 1h0m0s
         diagnostics:
             print_stats: false
+        collapse_inbound_public: false
 metrics:
     features:
         - application

@@ -18,6 +18,10 @@ import (
 // DNSTimeoutErrorType is the error.type of the DNS lookups that got no answer.
 const DNSTimeoutErrorType = "timeout"
 
+// ExternalAddress replaces the public addresses of the clients of a server, with
+// stats.collapse_inbound_public
+const ExternalAddress = "external"
+
 // StatGetters returns the attributes.Getter function that returns the string value of a given
 // attribute name.
 //
@@ -34,6 +38,9 @@ func StatGetters(name attr.Name) (attributes.Getter[*Stat, attribute.KeyValue], 
 		}
 	case attr.DstAddress:
 		getter = func(s *Stat) attribute.KeyValue {
+			if s.DstExternal {
+				return attribute.String(string(attr.DstAddress), ExternalAddress)
+			}
 			e := s.Endpoints()
 			return attribute.String(string(attr.DstAddress), e.DstAddr.IP().String())
 		}
@@ -48,6 +55,9 @@ func StatGetters(name attr.Name) (attributes.Getter[*Stat, attribute.KeyValue], 
 		getter = func(s *Stat) attribute.KeyValue {
 			if s.NAT == nil {
 				return attribute.KeyValue{}
+			}
+			if s.DstPreNATExternal {
+				return attribute.String(string(attr.DstPreNATAddress), ExternalAddress)
 			}
 			return attribute.String(string(attr.DstPreNATAddress), s.NAT.Pre.DstAddr.IP().String())
 		}
@@ -87,28 +97,7 @@ func StatGetters(name attr.Name) (attributes.Getter[*Stat, attribute.KeyValue], 
 		}
 	case attr.NetworkTCPHandshakeRole:
 		getter = func(s *Stat) attribute.KeyValue {
-			var role uint8
-			switch s.Type {
-			case StatTypeTCPFailedConnection:
-				role = s.TCPFailedConnection.Role
-			case StatTypeTCPRtt:
-				role = s.TCPRtt.Role
-			case StatTypeTCPSuccessfulConnection:
-				role = s.TCPSuccessfulConnection.Role
-			case StatTypeTCPClosedConnection:
-				role = s.TCPClosedConnection.Role
-			case StatTypeTCPFlowControl:
-				role = s.TCPFlowControl.Role
-			case StatTypeTCPCongestion:
-				role = s.TCPCongestion.Role
-			case StatTypeTCPCongestionEvent:
-				role = s.TCPCongestionEvent.Role
-			case StatTypeTCPRetransmit:
-				role = s.TCPRetransmitRole
-			case StatTypeTCPIo:
-				role = s.TCPIo.Role
-			}
-			return attribute.String(string(attr.NetworkTCPHandshakeRole), networkTCPHandshakeRoleStr(role))
+			return attribute.String(string(attr.NetworkTCPHandshakeRole), networkTCPHandshakeRoleStr(s.tcpRole()))
 		}
 	case attr.NetworkTCPRetransmitType:
 		getter = func(s *Stat) attribute.KeyValue {
@@ -237,6 +226,41 @@ func processGetter(name attr.Name) (func(*Stat) string, bool) {
 
 // Endpoints returns the endpoints of a stat after NAT, like Datadog's network.client.ip and
 // network.server.ip
+// tcpRole returns the handshake role of a TCP stat, 0 when it has none
+func (s *Stat) tcpRole() uint8 {
+	switch s.Type {
+	case StatTypeTCPFailedConnection:
+		return s.TCPFailedConnection.Role
+	case StatTypeTCPRtt:
+		return s.TCPRtt.Role
+	case StatTypeTCPSuccessfulConnection:
+		return s.TCPSuccessfulConnection.Role
+	case StatTypeTCPClosedConnection:
+		return s.TCPClosedConnection.Role
+	case StatTypeTCPFlowControl:
+		return s.TCPFlowControl.Role
+	case StatTypeTCPCongestion:
+		return s.TCPCongestion.Role
+	case StatTypeTCPCongestionEvent:
+		return s.TCPCongestionEvent.Role
+	case StatTypeTCPRetransmit:
+		return s.TCPRetransmitRole
+	case StatTypeTCPIo:
+		return s.TCPIo.Role
+	}
+	return 0
+}
+
+// Server tells whether the socket of a stat is the server side of its connection: from the
+// role of its socket traffic row, or the handshake role of its TCP stat
+func (s *Stat) Server() bool {
+	role := s.tcpRole()
+	if s.SocketTraffic != nil {
+		role = s.SocketTraffic.Role
+	}
+	return NetworkTCPHandshakeRoleCode(role) == CodeRoleServer
+}
+
 func (s *Stat) Endpoints() Endpoints {
 	if s.NAT != nil {
 		return s.NAT.Post

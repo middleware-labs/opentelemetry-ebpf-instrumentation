@@ -49,6 +49,11 @@ type StatsConfig struct {
 
 	GeoIP geoip.GeoIP `yaml:"geo_ip"`
 
+	// CollapseInboundPublic reports the public address of the clients of the servers of this
+	// host as "external", in the dst.address, dst.name and dst.pre_nat.address attributes: the
+	// clients on the internet of a server are then one series instead of one per client
+	CollapseInboundPublic bool `yaml:"collapse_inbound_public" env:"OTEL_EBPF_STATS_COLLAPSE_INBOUND_PUBLIC" validate:"boolean"`
+
 	// SocketTraffic configures the obi.stat.bytes and obi.stat.packets metrics
 	// (stats_socket_bytes and stats_socket_packets features)
 	SocketTraffic config.SocketTrafficConfig `yaml:"socket_traffic"`
